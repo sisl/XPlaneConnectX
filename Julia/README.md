@@ -53,7 +53,6 @@ The output is:
 sim/flightmodel/position/phi             0.9254593                      2024-08-06T14:35:53.541
 sim/flightmodel/position/theta           0.29906562                     2024-08-06T14:35:53.160
 sim/flightmodel/position/psi             130.79762                      2024-08-06T14:35:53.541
-
 ```
 
 ### Writing DataRefs
