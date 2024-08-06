@@ -25,8 +25,6 @@ class XPlaneConnect2():
             cmd = b'RREF'  # "Request DREF"
             freq = odf[1]     
             msg = struct.pack("<4sxii400s", cmd, freq, i, dref.encode('utf-8'))
-            with open("output_python.txt","wb") as f:
-                f.write(msg)
             self.sock.sendto(msg, (self.ip, self.port))
             time.sleep(0.05)
             

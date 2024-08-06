@@ -86,3 +86,6 @@ pause(True)
 sleep(1)
 pause(False)
 ```
+
+# Full Example
+A full example can be found in the `example.jl` file.
