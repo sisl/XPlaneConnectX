@@ -46,7 +46,7 @@ print(f"Status of landing lights: {xpc.getDREF('sim/cockpit/electrical/landing_l
 # Increase throttle to taxi and compensate for torque with rudder. Also release parking brake.
 xpc.sendCTRL(lat_control=0,         # yoke in neutral position
              lon_control=0,         # yoke in neutral position
-             rudder_control=0.3,   # rudder
+             rudder_control=0.3,    # rudder
              throttle=0.2,          # throttle
              gear=1,                # landing gear down
              flaps=0,               # no flaps

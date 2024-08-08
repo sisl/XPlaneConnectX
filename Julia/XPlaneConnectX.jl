@@ -27,6 +27,7 @@ An instance of `XPlaneConnectX` initialized with a UDP socket, the provided IP a
 ```julia
 xpc = XPlaneConnectX() # Uses default IP and port
 xpc = XPlaneConnectX(ip="192.168.1.10", port=50000) # Custom IP and port
+```
 """
 function XPlaneConnectX(; ip::String="127.0.0.1", port::Int64=49000)
     sock = UDPSocket()
@@ -47,6 +48,7 @@ Permanently subscribe to a list of DataRefs with a certain frequency. This metho
 ```julia
 xpc = XPlaneConnectX()
 subscribeDREFs(xpc, [("sim/cockpit2/controls/brake_fan_on", 2), ("sim/flightmodel/position/y_agl", 10)])
+```
 """
 function subscribeDREFs(xpc::XPlaneConnectX, subscribed_drefs::Vector{Tuple{String, Int64}})
     xpc.subscribed_drefs = subscribed_drefs
@@ -121,6 +123,7 @@ Gets the current value of a DataRef. This function is intended for one-time use.
 ```julia
 xpc = XPlaneConnectX()
 value = getDREF(xpc, "sim/cockpit2/controls/brake_fan_on")
+```
 """
 function getDREF(xpc::XPlaneConnectX, dref::String)
     # send request
@@ -177,6 +180,7 @@ Writes a value to the specified DataRef, provided that the DataRef is writable.
 ```julia
 xpc = XPlaneConnectX()
 sendDREF(xpc, "sim/cockpit/electrical/landing_lights_on", 1.0)  # Turn on the landing lights
+```
 """
 function sendDREF(xpc::XPlaneConnectX, dref::String, value::Any)
     prefix = "DREF"
@@ -192,7 +196,7 @@ end
 """
     sendCMND(xpc::XPlaneConnectX, command::String)
 
-Sends simulator commands to the simulator. These commands are not for controlling airplanes but for operating the simulator itself (e.g., closing X-Plane or taking a screenshot).
+Sends simulator commands to the simulator. These commands are not for (only) controlling airplanes but for operating the simulator itself (e.g., closing X-Plane or taking a screenshot).
 
 # Arguments
 - `xpc::XPlaneConnectX`: An instance of `XPlaneConnectX` used to send the command.
@@ -202,6 +206,7 @@ Sends simulator commands to the simulator. These commands are not for controllin
 ```julia
 xpc = XPlaneConnectX()
 sendCMND(xpc, "sim/operation/quit")  # Example command to close X-Plane
+```
 """
 function sendCMND(xpc::XPlaneConnectX, command::String)
     prefix = "CMND"
@@ -235,6 +240,7 @@ Sets the global position and attitude of an airplane. This is the only method to
 ```julia
 xpc = XPlaneConnectX()
 sendPOSI(xpc, 37.7749, -122.4194, 100.0, 0.0, 0.0, 90.0)
+```
 """
 function sendPOSI(xpc::XPlaneConnectX; lat::Any, lon::Any, elev::Any, phi::Any, theta::Any, psi_true::Any, ac::Int=0)
     prefix = "VEHS"
