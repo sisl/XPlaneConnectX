@@ -9,22 +9,35 @@ def print_state(state):
     for k in state.keys():
         print(f"{k:<40} {state[k]['value']:<30} {state[k]['timestamp']}")
 
-observed_drefs=[["sim/flightmodel/position/groundspeed",10],    # ground speed in m/s at 10Hz
-                ["sim/flightmodel/position/mag_psi ",10],       # magnetic heading in degrees at 10Hz
-                ]   
-   
-xpc = XPlaneConnectX(observed_drefs)
+subscribed_drefs=[("sim/flightmodel/position/groundspeed",10),   # ground speed in m/s at 10Hz
+                  ("sim/flightmodel/position/mag_psi",10),       # magnetic heading in degrees at 10Hz
+                 ]   
 
-time.sleep(0.5)     # this is just a safety buffer    
+# this assumes you are running X-Plane on the same machine as your code and use the default port 49000 that X-Plane uses for UDP
+xpc = XPlaneConnectX(ip='127.0.0.1', port=49000) 
 
-# Set the airplane's location to Palo Alto (KAPO), runway 31.
+# subscribe to datarefs
+xpc.subscribeDREFs(subscribed_drefs)    # the current values are stored in xpc.current_dref_values
+
+# time.sleep(0.5)     # this is just a safety buffer    
+
+# Set the airplane's location to Palo Alto (KPAO), runway 31.
 lat, lon, elev = 37.458194732666016, -122.11215209960938, 2.239990472793579
 phi, theta, psi = 0,0, 321.83612060546875
 
-xpc.pause(True) # for "long jumps" you want to pause the simulator
-xpc.sendPOSI(lat,lon,elev,phi,theta,psi)
-time.sleep(2)  # X-Plane needs time to load the new scenery for "long jumps"
-xpc.pause(False)
+xpc.pauseSIM(True) # for "long jumps" you want to pause the simulator
+
+xpc.sendPOSI(lat=lat,       #latitude in degrees
+             lon=lon,       #longitude in degrees 
+             elev=elev,     #altitude above mean sea level in meters
+             phi=phi,       #roll angle in degrees
+             theta=theta,   #pitch angle in degrees
+             psi_true=psi)  #true (not magnetic) heading
+
+print("Waiting for X-Plane to load scenery...")
+time.sleep(30)  # X-Plane needs time to load the new scenery for "long jumps"
+
+xpc.pauseSIM(False)
 
 # Turn the landing lights on and veryify that they are on
 xpc.sendDREF('sim/cockpit/electrical/landing_lights_on',True)
@@ -33,7 +46,7 @@ print(f"Status of landing lights: {xpc.getDREF('sim/cockpit/electrical/landing_l
 # Increase throttle to taxi and compensate for torque with rudder. Also release parking brake.
 xpc.sendCTRL(lat_control=0,         # yoke in neutral position
              lon_control=0,         # yoke in neutral position
-             rudder_control=-0.3,   # rudder
+             rudder_control=0.3,   # rudder
              throttle=0.2,          # throttle
              gear=1,                # landing gear down
              flaps=0,               # no flaps
@@ -42,7 +55,7 @@ xpc.sendCTRL(lat_control=0,         # yoke in neutral position
              )    
 
 # Taxi for 10s and print the observed DataRefs once per second
-for _ in range(10):
+for i in range(10):
     print_state(xpc.current_dref_values)
     time.sleep(1)
 
@@ -52,6 +65,5 @@ print(f"The current position is: {xpc.getPOSI()}")
 
 time.sleep(5)
 
-# Take a screenshot
 xpc.sendCMND('sim/operation/reset_flight')   # reset the flight
 

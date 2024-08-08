@@ -5,36 +5,57 @@ import datetime
 from typing import Tuple
 
 class XPlaneConnectX():
-    def __init__(self,observed_drefs:list=[],ip:str='127.0.0.1',port:int=49000) -> None:
+    def __init__(self,ip:str='127.0.0.1',port:int=49000) -> None:
         """XPlaneConnectX class initialization.
 
         Args:
-            observed_drefs (list, optional): List of (DataRef, frequency) tuples to be permanently observed. Example: [["sim/cockpit2/controls/brake_fan_on", 2], ["sim/flightmodel/position/y_agl",10]]. Defaults to [].
             ip (str, optional): IP address where X-Plane can be found. Defaults to '127.0.0.1'.
             port (int, optional): Port to communicate with X-Plane. This can be found and changed in the X-Plane network settings. Defaults to 49000.
+        
+        Example:
+            xpc = XPlaneConnectX()  # Uses default IP and port
+            xpc = XPlaneConnectX(ip="192.168.1.10", port=50000) # Custom IP and port
         """
         
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.ip = ip
         self.port = port
-        self.observed_drefs = observed_drefs
+        
+    
+    def subscribeDREFs(self, subscribed_drefs:list[Tuple[str,int]]) -> None:
+        """Permanently subscribe to a list of DataRefs with a certain frequency. This is the prefered method for obtaining 
+        the most up to date values for DataRefs that will be used a large number of times during the runtime of your code. 
+        Examples include the position, velocity or attitude. The data will be asynchronously received and processed. This is
+        is different than the `getDREF` or `getPOSI` method that run synchronously. The most recently value for each subscribed
+        DataRef is stored in XPlaneConnectX.current_dref_values which is a dictionary with the DataRefs as keys. Each entry of
+        the dictionary contains another dictionary with the keys *value* and "timestamp* containing the most recent value of
+        DataRef as well as the time it was received, respectiveley. 
+
+        Args:
+            subscribed_drefs (list[Tuple[str,int]]): List of (DataRef, frequency) tuples to be permanently observed. Example: [("sim/cockpit2/controls/brake_fan_on", 2), ("sim/flightmodel/position/y_agl",10)].
+        
+        Example:
+            xpc = XPlaneConnectX()
+            xpc.subscribeDREFs([("sim/cockpit2/controls/brake_fan_on", 2), ("sim/flightmodel/position/y_agl", 10)])
+        """
+        
+        self.subscribed_drefs = subscribed_drefs
         
         # initialize the current data dictionary that always contains the most up-to-date data received from the simulator
-        self.reverse_index = {i:odf[0] for i,odf in enumerate(self.observed_drefs)}
-        self.current_dref_values = {odf[0]:{'value':None, 'timestamp':None} for odf in self.observed_drefs}
+        self.reverse_index = {i:sdf[0] for i,sdf in enumerate(self.subscribed_drefs)}
+        self.current_dref_values = {sdf[0]:{'value':None, 'timestamp':None} for sdf in self.subscribed_drefs}
         
         self._create_observation_requests()
-        self.observe()
-    
+        self._observe_async()
+            
     def _create_observation_requests(self) -> None:
-        for i,odf in enumerate(self.observed_drefs):
-            dref = odf[0]
+        for i,sdf in enumerate(self.subscribed_drefs):
+            dref = sdf[0]
             cmd = b'RREF'  # "Request DREF"
-            freq = odf[1]     
+            freq = sdf[1]     
             msg = struct.pack("<4sxii400s", cmd, freq, i, dref.encode('utf-8'))
             self.sock.sendto(msg, (self.ip, self.port))
-            
-            
+                    
     def _observe(self) -> None:
         while True:
             data, addr = self.sock.recvfrom(16348)
@@ -52,7 +73,7 @@ class XPlaneConnectX():
                     else:
                         raise ValueError("Received a packet with invalid index.")
     
-    def observe(self) -> None:
+    def _observe_async(self) -> None:
         observe_thread = threading.Thread(target=self._observe)
         observe_thread.daemon = True
         observe_thread.start()
@@ -65,6 +86,10 @@ class XPlaneConnectX():
 
         Returns:
             float: Value of the DataRef `dref`.
+        
+        Example:
+            xpc = XPlaneConnectX()
+            value = xpc.getDREF(""sim/cockpit2/controls/brake_fan_on")
         """
         
         temp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -89,6 +114,10 @@ class XPlaneConnectX():
         Args:
             dref (str): DataRef to be changed.
             value (float): Value the DataRef should be set to.
+        
+        Example:
+            xpc = XPlaneConnectX()
+            xpc.sendDREF("sim/cockpit/electrical/landing_lights_on", 1) # Turn on the landing lights
         """
         
         msg = struct.pack('<4sxf500s', b'DREF', value, dref.encode('UTF-8'))
@@ -99,6 +128,10 @@ class XPlaneConnectX():
 
         Args:
             command (str): Command to be executed.
+        
+        Example:
+            xpc = XPlaneConnectX()
+            xpc.sendCMND("sim/operation/quit")  # Example command to close X-Plane 
         """
         
         msg = struct.pack('<4sx500s', b'CMND', command.encode('utf-8'))
@@ -116,6 +149,10 @@ class XPlaneConnectX():
             theta (float): Pitch angle in degrees.
             psi_true (float): True heading (not magnetic) in degrees.
             ac (int, optional): Index of the aircraft you want to set the position of. 0 is the ego aircraft. Defaults to 0.
+        
+        Example:
+            xpc = XPlaneConnectX()
+            xpc.sendPOSI(37.7749, -122.4194, 100.0, 0.0, 0.0, 90.0)
         """
         
         msg = struct.pack('<4sxidddfff', b'VEHS',
@@ -153,6 +190,10 @@ class XPlaneConnectX():
             true (not magnetic) heading in degrees, speed in east direction in meters per second (OpenGL coordinate system x-axis),
             speed in up direction in meters per second (OpenGL coordinate system y-axis), speed in south direction in meters per second (OpenGL coordinate system z-axis),
             roll rate in radians per second, pitch rate in radians per second, yaw rate in radians per second
+        
+        Example:
+            xpc = XPlaneConnectX()
+            lat, lon, ele, y_agl, phi, theta, psi_true, vx, vy, vz, p, q, r = xpc.getPOSI()
         """
         
         temp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -199,6 +240,10 @@ class XPlaneConnectX():
             flaps (float): Requested flaps position. Ranges from [0...1].
             speedbrakes (float): Requested speedbakes position. Possible values are {-0.5, [0...1]} where -0.5 means the speedbrake is armed, 0 is retracted, and 1 is fully deployed.
             park_break (float): Requested park break ratio. Ranged from [0...1]
+        
+        Example:
+            xpc = XPlaneConnectX()
+            xpc.sendCTRL(lat_control=-0.2, lon_control=0.0, rudder_control=0.2, throttle=0.8, gear=1, flaps=0.5, speedbrakes=0, park_break=0)
         """
         
         # lateral control
@@ -243,11 +288,16 @@ class XPlaneConnectX():
         self.sock.sendto(msg, (self.ip, self.port))
 
     
-    def pause(self, set_pause:bool) -> None:
+    def pauseSIM(self, set_pause:bool) -> None:
         """Pauses the simulator.
 
         Args:
             set_pause (bool): If `True`, the simulator is paused, if `False`, the simulator is unpaused.
+        
+        Example:
+            xpc = XPlaneConnectX()
+            xpc.pauseSIM(True)  # Pauses the simulator
+            xpc.pauseSIM(False) # Unpauses the simulator
         """
         if set_pause:
             self.sendCMND('sim/operation/pause_on')

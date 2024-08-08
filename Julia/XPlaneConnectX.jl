@@ -2,30 +2,65 @@ using Sockets
 using Base.Threads
 using Dates
 
-struct XPlaneConnectX
+mutable struct XPlaneConnectX
     sock::UDPSocket
     ip::String
     port::Int
-    observed_drefs::Vector{Tuple{String, Int}}
+    subscribed_drefs::Vector{Tuple{String, Int}}
     reverse_index::Dict{Int, String}
     current_dref_values::Dict{String, Dict{String, Any}}
 end
 
-function XPlaneConnectX(observed_drefs::Vector{Tuple{String, Int}}=[], ip::String="127.0.0.1", port::Int=49000)
+"""
+    XPlaneConnectX(; ip::String="127.0.0.1", port::Int64=49000)
+
+Initialize an `XPlaneConnectX` instance.
+
+# Arguments
+- `ip::String="127.0.0.1"`: IP address where X-Plane can be found. Defaults to '127.0.0.1'.
+- `port::Int=49000`: Port to communicate with X-Plane. This can be found and changed in the X-Plane network settings. Defaults to 49000.
+
+# Returns
+An instance of `XPlaneConnectX` initialized with a UDP socket, the provided IP address, and port.
+
+# Examples
+```julia
+xpc = XPlaneConnectX() # Uses default IP and port
+xpc = XPlaneConnectX(ip="192.168.1.10", port=50000) # Custom IP and port
+"""
+function XPlaneConnectX(; ip::String="127.0.0.1", port::Int64=49000)
     sock = UDPSocket()
-    reverse_index = Dict(i => odf[1] for (i, odf) in enumerate(observed_drefs))
-    current_dref_values = Dict(odf[1] => Dict("value" => nothing, "timestamp" => nothing) for odf in observed_drefs)
-    xpc = XPlaneConnectX(sock, ip, port, observed_drefs, reverse_index, current_dref_values)
-    _create_observation_requests(xpc)
-    observe(xpc)
+    xpc = XPlaneConnectX(sock, ip, port, [], Dict(), Dict())
     return xpc
 end
 
+"""
+    subscribeDREFs(xpc::XPlaneConnectX, subscribed_drefs::Vector{Tuple{String, Int64}})
+
+Permanently subscribe to a list of DataRefs with a certain frequency. This method is preferred for obtaining the most up-to-date values for DataRefs that will be used frequently during the runtime of your code. Examples include position, velocity, or attitude. The data will be asynchronously received and processed, unlike the synchronous `getDREF` or `getPOSI` methods. The most recent value for each subscribed DataRef is stored in `xpc.current_dref_values`, which is a dictionary with DataRefs as keys. Each entry contains another dictionary with the keys `"value"` and `"timestamp"` representing the most recent value and the time it was received, respectively.
+
+# Arguments
+- `xpc::XPlaneConnectX`: An instance of `XPlaneConnectX` to which the DataRefs will be subscribed.
+- `subscribed_drefs::Vector{Tuple{String, Int64}}`: List of (DataRef, frequency) tuples to be permanently observed.
+
+# Example
+```julia
+xpc = XPlaneConnectX()
+subscribeDREFs(xpc, [("sim/cockpit2/controls/brake_fan_on", 2), ("sim/flightmodel/position/y_agl", 10)])
+"""
+function subscribeDREFs(xpc::XPlaneConnectX, subscribed_drefs::Vector{Tuple{String, Int64}})
+    xpc.subscribed_drefs = subscribed_drefs
+    xpc.reverse_index = Dict(i => sdf[1] for (i, sdf) in enumerate(subscribed_drefs))
+    xpc.current_dref_values = Dict(sdf[1] => Dict("value" => nothing, "timestamp" => nothing) for sdf in subscribed_drefs)
+    _create_observation_requests(xpc)
+    _observe_async(xpc)
+end
+
 function _create_observation_requests(xpc::XPlaneConnectX)
-    for (i, odf) in enumerate(xpc.observed_drefs)
-        dref = odf[1]
+    for (i, sdf) in enumerate(xpc.subscribed_drefs)
+        dref = sdf[1]
         prefix = "RREF"  # "Request DREF"
-        freq = Int32(odf[2])
+        freq = Int32(sdf[2])
         buffer = IOBuffer()
         write(buffer, prefix)                     # 4s
         write(buffer, UInt8(0))                   # x (padding byte)
@@ -37,7 +72,9 @@ function _create_observation_requests(xpc::XPlaneConnectX)
     end
 end
 
-function _observe(xpc::XPlaneConnectX)
+
+function _observe(xpc::XPlaneConnectX,delay::Float64)
+    sleep(delay)    # without this, recvfrom blocks
     while true
         addr, data = recvfrom(xpc.sock)
         header = String(data[1:4])
@@ -46,12 +83,12 @@ function _observe(xpc::XPlaneConnectX)
                 error("Received data is not 8 bytes long")
             end
             no_packets = div(length(data) - 5, 8)
-            for p_idx in 0:(no_packets - 1)
-                p_data = data[(5 + p_idx * 8 + 1):(5 + (p_idx + 1) * 8)]
+            for p_idx=1:no_packets
+                p_data = data[(5 + (p_idx-1) * 8 + 1):(5 + (p_idx) * 8)]
                 idx, value = reinterpret(Int32, p_data[1:4])[1], reinterpret(Float32, p_data[5:8])[1]
-                if idx in xpc.reverse_index.keys()
-                    # write current values to the xpc.current_data dictionary
-                    xpc.current_data[xpc.reverse_index[idx]] = Dict("value" => value, "timestamp" => now())
+                if idx in keys(xpc.reverse_index)
+                    # write current values to the xpc.current_dref_values dictionary
+                    xpc.current_dref_values[xpc.reverse_index[idx]] = Dict("value" => value, "timestamp" => now())
                 else
                     error("Received a packet with invalid index.")
                 end
@@ -60,15 +97,35 @@ function _observe(xpc::XPlaneConnectX)
     end
 end
 
-function observe(xpc::XPlaneConnectX)
-    @async _observe(xpc)
+function _observe_async(xpc::XPlaneConnectX;delay::Float64=0.01)
+    @async _observe(xpc,delay)
+
+    #block the synchronous code as well to avoid that xpc.current_dref_values is read before they are ready
+    sleep(delay)    
     # _observe(xpc)
 end
 
+"""
+    getDREF(xpc::XPlaneConnectX, dref::String) -> Float32
+
+Gets the current value of a DataRef. This function is intended for one-time use. For DataRefs with frequent use, consider using the permanently observed DataRefs set up when initializing the `XPlaneConnectX` object.
+
+# Arguments
+- `xpc::XPlaneConnectX`: An instance of `XPlaneConnectX` to perform the query.
+- `dref::String`: DataRef to be queried.
+
+# Returns
+- `Float32`: The value of the DataRef `dref`.
+
+# Example
+```julia
+xpc = XPlaneConnectX()
+value = getDREF(xpc, "sim/cockpit2/controls/brake_fan_on")
+"""
 function getDREF(xpc::XPlaneConnectX, dref::String)
     # send request
     temp_socket = UDPSocket()
-    idx = max(xpc.reverse_index.keys()) + 10
+    idx = maximum(keys(xpc.reverse_index)) + 10
     prefix = "RREF"
     buffer = IOBuffer()
     write(buffer, prefix)
@@ -86,8 +143,8 @@ function getDREF(xpc::XPlaneConnectX, dref::String)
         if ((length(data) - 5) % 8) != 0
             error("Received data is not 8 bytes long")
         end
-        p_data = data[6:]
-        idx_received, value = reinterpret(Int32, p_data[1:4])[1], reinterpret(Float32, p_data[5:])[1] 
+        p_data = data[6:end]
+        idx_received, value = reinterpret(Int32, p_data[1:4])[1], reinterpret(Float32, p_data[5:end])[1] 
         if idx_received != idx
             error("Received a packet with invalid index.")
         end
@@ -106,6 +163,21 @@ function getDREF(xpc::XPlaneConnectX, dref::String)
     return value
 end
 
+"""
+    sendDREF(xpc::XPlaneConnectX, dref::String, value::Any)
+
+Writes a value to the specified DataRef, provided that the DataRef is writable.
+
+# Arguments
+- `xpc::XPlaneConnectX`: An instance of `XPlaneConnectX` used to send the data.
+- `dref::String`: The DataRef to be changed.
+- `value::Any`: The value to which the DataRef should be set.
+
+# Example
+```julia
+xpc = XPlaneConnectX()
+sendDREF(xpc, "sim/cockpit/electrical/landing_lights_on", 1.0)  # Turn on the landing lights
+"""
 function sendDREF(xpc::XPlaneConnectX, dref::String, value::Any)
     prefix = "DREF"
     buffer = IOBuffer()
@@ -117,6 +189,20 @@ function sendDREF(xpc::XPlaneConnectX, dref::String, value::Any)
     send(xpc.sock, IPv4(xpc.ip), xpc.port, take!(buffer))
 end
 
+"""
+    sendCMND(xpc::XPlaneConnectX, command::String)
+
+Sends simulator commands to the simulator. These commands are not for controlling airplanes but for operating the simulator itself (e.g., closing X-Plane or taking a screenshot).
+
+# Arguments
+- `xpc::XPlaneConnectX`: An instance of `XPlaneConnectX` used to send the command.
+- `command::String`: The command to be executed by the simulator.
+
+# Example
+```julia
+xpc = XPlaneConnectX()
+sendCMND(xpc, "sim/operation/quit")  # Example command to close X-Plane
+"""
 function sendCMND(xpc::XPlaneConnectX, command::String)
     prefix = "CMND"
     buffer = IOBuffer()
@@ -127,12 +213,35 @@ function sendCMND(xpc::XPlaneConnectX, command::String)
     send(xpc.sock, IPv4(xpc.ip), xpc.port, take!(buffer))
 end
 
-function sendPOSI(xpc::XPlaneConnectX, lat::Any, lon::Any, elev::Any, phi::Any, theta::Any, psi_true::Any, ac::Int32=0)
+"""
+    sendPOSI(xpc::XPlaneConnectX; lat::Any, lon::Any, elev::Any, phi::Any, theta::Any, psi_true::Any, ac::Int=0)
+
+Sets the global position and attitude of an airplane. This is the only method to set the latitude and longitude of an airplane, as these DataRefs are not writable.
+
+# Arguments
+- `xpc::XPlaneConnectX`: An instance of `XPlaneConnectX` used to send the position data.
+- `lat::Any`: Latitude in degrees. For precise placement, this should be a `Float64`.
+- `lon::Any`: Longitude in degrees. For precise placement, this should be a `Float64`.
+- `elev::Any`: Altitude above mean sea level in meters. This should be a `Float64`.
+- `phi::Any`: Roll angle in degrees. This should be a `Float32`.
+- `theta::Any`: Pitch angle in degrees. This should be a `Float32`.
+- `psi_true::Any`: True heading (not magnetic) in degrees. This should be a `Float32`.
+- `ac::Int=0`: Index of the aircraft to set the position for. `0` refers to the ego aircraft. Defaults to `0`.
+
+# Notes
+- Ensure that the latitude and longitude values are provided as `Float64` for double precision, while roll, pitch, and heading values should be provided as `Float32`.
+
+# Example
+```julia
+xpc = XPlaneConnectX()
+sendPOSI(xpc, 37.7749, -122.4194, 100.0, 0.0, 0.0, 90.0)
+"""
+function sendPOSI(xpc::XPlaneConnectX; lat::Any, lon::Any, elev::Any, phi::Any, theta::Any, psi_true::Any, ac::Int=0)
     prefix = "VEHS"
     buffer = IOBuffer()
     write(buffer, prefix)
     write(buffer, UInt8(0))
-    write(buffer, ac)
+    write(buffer, Int32(ac))
     write(buffer, Float64(lat))
     write(buffer, Float64(lon))
     write(buffer, Float64(elev))
@@ -143,6 +252,51 @@ function sendPOSI(xpc::XPlaneConnectX, lat::Any, lon::Any, elev::Any, phi::Any, 
     send(xpc.sock, IPv4(xpc.ip), xpc.port, take!(buffer))   # send twice since the elevation is erroneously calculated based on initial location
 end
 
+"""
+    getPOSI(xpc::XPlaneConnectX) -> Tuple{Float64, Float64, Float64, Float32, Float32, Float32, Float32, Float32, Float32, Float32, Float32, Float32}
+
+Gets the global position of the ego aircraft. If this information is needed frequently, consider using the permanently observed DataRefs set up when initializing the `XPlaneConnectX` object.
+
+The function retrieves the following values, which correspond to DataRefs:
+
+- `sim/flightmodel/position/longitude`
+- `sim/flightmodel/position/latitude`
+- `sim/flightmodel/position/elevation`
+- `sim/flightmodel/position/y_agl`
+- `sim/flightmodel/position/true_theta`
+- `sim/flightmodel/position/true_psi`
+- `sim/flightmodel/position/true_phi`
+- `sim/flightmodel/position/local_vx`
+- `sim/flightmodel/position/local_vy`
+- `sim/flightmodel/position/local_vz`
+- `sim/flightmodel/position/Prad`
+- `sim/flightmodel/position/Qrad`
+- `sim/flightmodel/position/Rrad`
+
+# Arguments
+- `xpc::XPlaneConnectX`: An instance of `XPlaneConnectX`.
+
+# Returns
+- A tuple containing:
+  - `Float64`: Latitude in degrees
+  - `Float64`: Longitude in degrees
+  - `Float64`: Elevation above mean sea level in meters
+  - `Float32`: Elevation above the terrain in meters
+  - `Float32`: Roll angle in degrees
+  - `Float32`: Pitch angle in degrees
+  - `Float32`: True heading (not magnetic) in degrees
+  - `Float32`: Speed in east direction in meters per second
+  - `Float32`: Speed in up direction in meters per second
+  - `Float32`: Speed in south direction in meters per second
+  - `Float32`: Roll rate in radians per second
+  - `Float32`: Pitch rate in radians per second
+  - `Float32`: Yaw rate in radians per second
+
+# Example
+```julia
+xpc = XPlaneConnectX()
+lat, lon, ele, y_agl, phi, theta, psi_true, vx, vy, vz, p, q, r = getPOSI(xpc)
+"""
 function getPOSI(xpc::XPlaneConnectX)
     # send request
     temp_socket = UDPSocket()
@@ -158,7 +312,7 @@ function getPOSI(xpc::XPlaneConnectX)
     # wait for response
     addr, data = recvfrom(temp_socket)
     header = String(data[1:4])
-    if header == "RREF"
+    if header == "RPOS"
         lon = reinterpret(Float64, data[6:13])[1]           # longitude in degrees
         lat = reinterpret(Float64, data[14:21])[1]          # latitude in degrees
         ele = reinterpret(Float64, data[22:29])[1]          # elevation above mean sea level in meters
@@ -175,7 +329,7 @@ function getPOSI(xpc::XPlaneConnectX)
     else
         error("Received invalid header.")
     end
-
+    
     # unsubscribe
     freq = "0"    # unsubscribe by setting frequency to 0
     buffer = IOBuffer()
@@ -188,7 +342,28 @@ function getPOSI(xpc::XPlaneConnectX)
     return lat, lon, ele, y_agl, phi, theta, psi_true, vx, vy, vz, p, q, r
 end
 
-function sendCTRL(xpc::XPlaneConnectX, lat_control::Float32, lon_control::Float32, rudder_control::Float32, throttle::Float32, gear::Int32, flaps::Float32, speedbrakes::Float32, park_break::Float32)
+"""
+    sendCTRL(xpc::XPlaneConnectX; lat_control::Number, lon_control::Number, rudder_control::Number, throttle::Number, gear::Signed, flaps::Number, speedbrakes::Number, park_break::Number)
+
+Sends basic control inputs to the ego aircraft. For more fine-grained control, refer to the DataRefs that can be set using the `setDREF` method.
+
+# Arguments
+- `xpc::XPlaneConnectX`: An instance of `XPlaneConnectX`.
+- `lat_control::Number`: Lateral pilot input, representing yoke rotation or side stick left/right position. Ranges from `[-1, 1]`.
+- `lon_control::Number`: Longitudinal pilot input, representing yoke or side stick forward/backward position. Ranges from `[-1, 1]`.
+- `rudder_control::Number`: Rudder pilot input. Ranges from `[-1, 1]`.
+- `throttle::Number`: Throttle position. Ranges from `[-1, 1]`, where `-1` indicates full reverse thrust and `1` indicates full forward thrust.
+- `gear::Signed`: Requested gear position. `0` corresponds to gear up, and `1` corresponds to gear down.
+- `flaps::Number`: Requested flaps position. Ranges from `[0, 1]`.
+- `speedbrakes::Number`: Requested speedbrakes position. Possible values are `-0.5` (armed), `0` (retracted), and `1` (fully deployed).
+- `park_break::Number`: Requested park brake ratio. Ranges from `[0, 1]`.
+
+# Example
+```julia
+xpc = XPlaneConnectX()
+sendCTRL(xpc, lat_control=-0.2, lon_control=0.0, rudder_control=0.2, throttle=0.8, gear=1, flaps=0.5, speedbrakes=0, park_break=0)
+"""
+function sendCTRL(xpc::XPlaneConnectX; lat_control::Number, lon_control::Number, rudder_control::Number, throttle::Number, gear::Signed, flaps::Number, speedbrakes::Number, park_break::Number)
     # lateral control
     dref = "sim/cockpit2/controls/yoke_roll_ratio"
     prefix = "DREF"
@@ -279,8 +454,22 @@ function sendCTRL(xpc::XPlaneConnectX, lat_control::Float32, lon_control::Float3
     send(xpc.sock, IPv4(xpc.ip), xpc.port, take!(buffer))   
 end
 
+"""
+    pause(xpc::XPlaneConnectX, set_pause::Bool)
 
-function pause(xpc::XPlaneConnectX, set_pause::Bool)
+Pauses or unpauses the simulator based on the given input.
+
+# Arguments
+- `xpc::XPlaneConnectX`: The `XPlaneConnectX` object used to interact with the simulator.
+- `set_pause::Bool`: If `true`, the simulator is paused. If `false`, the simulator is unpaused.
+
+# Example
+```julia
+xpc = XPlaneConnectX()
+pauseSIM(xpc, true)  # Pauses the simulator
+pauseSIM(xpc, false) # Unpauses the simulator
+"""
+function pauseSIM(xpc::XPlaneConnectX, set_pause::Bool)
     if set_pause
         sendCMND(xpc, "sim/operation/pause_on")
     else
