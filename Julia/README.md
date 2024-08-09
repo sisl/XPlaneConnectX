@@ -233,7 +233,7 @@ sendCTRL(xpc, lat_control=-0.2, lon_control=0.0, rudder_control=0.2, throttle=0.
 
 ### Pausing and Un-Pausing the Simulator
 ```julia
-pause(xpc::XPlaneConnectX, set_pause::Bool)
+pauseSIM(xpc::XPlaneConnectX, set_pause::Bool)
 ```
 
 Pauses or unpauses the simulator based on the given input.

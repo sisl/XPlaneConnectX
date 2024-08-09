@@ -464,7 +464,7 @@ function sendCTRL(xpc::XPlaneConnectX; lat_control::Number, lon_control::Number,
 end
 
 """
-    pause(xpc::XPlaneConnectX, set_pause::Bool)
+    pauseSIM(xpc::XPlaneConnectX, set_pause::Bool)
 
 Pauses or unpauses the simulator based on the given input.
 
