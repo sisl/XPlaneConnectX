@@ -6,7 +6,7 @@ This guide is for the Python version of XPlaneConnectX. The code was developed u
 No plugins are required, only an installed copy of X-Plane 12 and Python. Additionally, it is necessary to explicitly "accept incoming connections" in the X-Plane Network settings. By default, it appears that this option is disabled. 
 
 ## Installation
-There is no installation required. You only need to make sure the file `XPlaneConnectX.py` file is visible to your code and import the `XPlaneConnectX` object:
+There is no specific package installation required for our code as we are only using the standard library of Python. You only need to make sure the file `XPlaneConnectX.py` file is visible to your code and import the `XPlaneConnectX` object:
 
 ```python
 from XPlaneConnectX import XPlaneConnectX
