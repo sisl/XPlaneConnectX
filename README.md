@@ -1,6 +1,6 @@
 # XPlaneConnectX
 
-In light of issues that the original `XPlaneConnect` seems to have with X-Plane 12 (especially with Ubuntu and macOS), this lightweight script provides a similar interface to read DataRefs, set DataRefs, and send commands as it is possible with the original `XPlaneConnect`. 
+In light of issues that the original `XPlaneConnect` seems to have with X-Plane 12 (especially with Ubuntu and macOS), this lightweight, UDP-based script provides a similar interface to X-Plane than the original `XPlaneConnect`. 
 
 At the moment, we provide implementations in Python 3 and Julia. The code was developed using Python 3.10, Julia 1.10, and X-Plane 12.1. We tested our code on Ubuntu 22.04, macOS Sonoma, and Windows 11. While we haven't tested the compatibility for X-Plane versions <12.0, we suspect compatiblity at least with X-Plane 11 since the UDP interface does not seem to have changed signifcantly.
 
@@ -9,9 +9,9 @@ At the moment, we provide implementations in Python 3 and Julia. The code was de
 # Quick Start
 Instead of turing our code in standalone packages, we decided to leave them as standalone files that only rely on each language's standard library to facilitate the extension of the code for individual research needs. Furthermore, we use as much of the original synthax of `XPlaneConenct` to allow for an easy transition of legacy users of `XPlaneConnect`.
 
-The following functions are currently supported:
+The following functions are currently supported (the links take you to the language-specific documentation):
 - `subscribeDREFs` [[Py]](./Python3/README.md#subscribing-to-datarefs)/[[Jl]](./Julia/README.md#subscribing-to-datarefs)
-- `getDREF` [[py]](./Python3/README.md#reading-datarefs)/[[jl]](./Julia/README.md#reading-datarefs)
+- `getDREF` [[Py]](./Python3/README.md#reading-datarefs)/[[Jl]](./Julia/README.md#reading-datarefs)
 - `sendDREF` [[Py]](./Python3/README.md#sending-datarefs)/[[Jl]](./Julia/README.md#sending-datarefs)
 - `sendCMND` [[Py]](./Python3/README.md#sending-commands)/[[Jl]](./Julia/README.md#sending-commands)
 - `getPOSI` [[Py]](./Python3/README.md#reading-the-position-of-an-aircraft)/[[Jl]](./Julia/README.md#reading-the-position-of-an-aircraft)
@@ -64,7 +64,7 @@ There is a detailed guide for the Python and the Julia version in the respective
 - [Julia Guide](./Julia/README.md)
 
 # Citation
-If you use our software for your research, please leave us a star and use the following citation:
+If you enjoy using `XPlaneConnectX`, please leave a star. If you use our software for your research, please use the following citation:
 
 ```
 @misc{XPlaneConnect2,
