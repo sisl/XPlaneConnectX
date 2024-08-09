@@ -28,7 +28,7 @@ In Python:
 ```python
 from XPlaneConnectX import XPlaneConnectX # assumes you have XPlaneConnectX.py in same directory
 
-xpc = XPlaneConnectX(ip='127.0.0.1', port=49000)
+xpc = XPlaneConnectX()  # equivalent to XPlaneConnectX(ip='127.0.0.1',port=49000)
 
 xpc.sendCTRL(lat_control=0.0,       # yoke rotation neutral
              lon_control=0.0,       # yoke forward/backward neutral
@@ -44,7 +44,7 @@ In Julia:
 ```julia
 include("XPlaneConnectX.jl") # assumes you have XPlaneConnectX.jl in same directory
 
-xpc = XPlaneConnectX(ip="127.0.0.1", port=49000)
+xpc = XPlaneConnectX()  # equivalent to XPlaneConnectX(ip='127.0.0.1',port=49000)
 
 sendCTRL(xpc,                   # XPlaneConnectX struct
          lat_control=0.0,       # yoke rotation neutral
