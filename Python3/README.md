@@ -1,9 +1,9 @@
 # XPlaneConnectX - Python 3
 
-This guide is for the Python version of XPlaneConnectX. The code was developed using Python 3.10 and X-Plane 12.1. We tested our implementation on Ubuntu 22.04, macOS Sonoma, and Windows 11.
+This guide is for the Python version of XPlaneConnectX. The code was developed using Python 3.10 and X-Plane 12.1. We tested our implementation on Ubuntu 22.04, macOS Sonoma, and Windows 11. We also suspect that our code will work with X-Plane 11 since the UDP interface does not seem to have changed.
 
 ## Requirements
-No plugins are required, only an installed copy of X-Plane 12 and Python. Additionally, it is necessary to explicitly "accept incoming connections" in the X-Plane Network settings. By default, it appears that this option is disabled. 
+No plugins are required, only an installed copy of X-Plane 12 and Python. Additionally, it is necessary to explicitly "accept incoming connections" in the X-Plane network settings. By default, it appears that this option is disabled. 
 
 ## Installation
 There is no specific package installation required for our code as we are only using the standard library of Python. You only need to make sure the file `XPlaneConnectX.py` file is visible to your code and import the `XPlaneConnectX` object:
@@ -36,8 +36,8 @@ XPlaneConnectX(ip:str='127.0.0.1', port:int=49000)
 Initialize an `XPlaneConnectX` instance.
 
 #### Arguments
-- `ip::String="127.0.0.1"`: IP address where X-Plane can be found. Defaults to '127.0.0.1'.
-- `port::Int=49000`: Port to communicate with X-Plane. This can be found and changed in the X-Plane network settings. Defaults to 49000.
+- `ip:str="127.0.0.1"`: IP address where X-Plane can be found. Defaults to '127.0.0.1'.
+- `port:int=49000`: Port to communicate with X-Plane. This can be found and changed in the X-Plane network settings. Defaults to 49000.
 
 > **Note**: If not running on the same machine, make sure your firewall is correctly configured to send UDP packets to X-Plane and receive packets from X-Plane.
 
@@ -55,7 +55,7 @@ xpc = XPlaneConnectX(ip="192.168.1.10", port=50000) # Custom IP and port
 subscribeDREFs(subscribed_drefs:list[Tuple[str,int]]) -> None
 ```
 
-Permanently subscribe to a list of DataRefs with a certain frequency. This method is preferred for obtaining the most up-to-date values for DataRefs that will be used frequently during the runtime of your code. Examples include position, velocity, or attitude. The data will be asynchronously received and processed, unlike the synchronous `getDREF` or `getPOSI` methods. The most recent value for each subscribed DataRef is stored in `xpc.current_dref_values`, which is a dictionary with DataRefs as keys. Each entry contains another dictionary with the keys `"value"` and `"timestamp"` representing the most recent value and the time it was received, respectively.
+Permanently subscribe to a list of DataRefs with a certain frequency. This method is preferred for obtaining the most up-to-date values for DataRefs that will be used frequently during the runtime of your code. Examples include position, velocity, or attitude. The data will be asynchronously received and processed, unlike the synchronous `getDREF` or `getPOSI` methods. The most recent value for each subscribed DataRef is stored in `xpc.current_dref_values`, which is a dictionary with DataRefs as keys. Each entry contains another dictionary with the keys `"value"` and `"timestamp"` representing the most recent value and the time it was received, respectively. A full list of DataRefs can be found in `/.../X-Plane 12/Resources/plugins/DataRefs.txt`. Plugins can define their own DataRefs that you can subscribe to as well. Often, those definitions are stored within the plugin's directory itself.
 
 > **Note**: This function does not exist in the original XPlaneConnect, however, for code performance, this functionality can be helpful.
 
@@ -65,7 +65,8 @@ Permanently subscribe to a list of DataRefs with a certain frequency. This metho
 #### Example
 ```python
 xpc = XPlaneConnectX()
-xpc.subscribeDREFs([("sim/cockpit2/controls/brake_fan_on", 2), ("sim/flightmodel/position/y_agl", 10)])
+xpc.subscribeDREFs([("sim/cockpit2/controls/brake_fan_on", 2),  # brake fan at 2Hz
+                    ("sim/flightmodel/position/y_agl", 10)])    # altitude above ground at 10Hz
 print(xpc.current_dref_values)  #prints the most recent values received from the subsribed to DataRefs
 ```
 
@@ -74,7 +75,7 @@ print(xpc.current_dref_values)  #prints the most recent values received from the
 getDREF(dref:str) -> float
 ```
 
-Gets the current value of a DataRef. This function is intended for one-time use. For DataRefs with frequent use, consider using the permanently observed DataRefs set up when initializing the `XPlaneConnectX` object.
+Gets the current value of a DataRef. This function is intended for one-time use due to its synchronous nature. I.e., calling `getDREF` will block your code until the value is received. For DataRefs with frequent use, consider using the `subscribeDREFs` method. A full list of DataRefs can be found in `/.../X-Plane 12/Resources/plugins/DataRefs.txt`. Plugins can define their own DataRefs that you can subscribe to as well. Often, those definitions are stored within the plugin's directory itself.
 
 #### Arguments
 - `dref:str`: DataRef to be queried.
@@ -93,7 +94,7 @@ value = xpc.getDREF("sim/cockpit2/controls/brake_fan_on")
 sendDREF(dref:str, value:float) -> None
 ```
 
-Writes a value to the specified DataRef, provided that the DataRef is writable.
+Writes a value to the specified DataRef, provided that the DataRef is writable. A full list of DataRefs can be found in `/.../X-Plane 12/Resources/plugins/DataRefs.txt`. Plugins can define their own DataRefs that you can subscribe to as well. Often, those definitions are stored within the plugin's directory itself.
 
 #### Arguments
 - `dref:str`: The DataRef to be changed.
@@ -158,9 +159,9 @@ The function retrieves the following values, which correspond to DataRefs:
 - `sim/flightmodel/position/latitude`
 - `sim/flightmodel/position/elevation`
 - `sim/flightmodel/position/y_agl`
-- `sim/flightmodel/position/true_theta`
+- `sim/flightmodel/position/phi`
+- `sim/flightmodel/position/theta`
 - `sim/flightmodel/position/true_psi`
-- `sim/flightmodel/position/true_phi`
 - `sim/flightmodel/position/local_vx`
 - `sim/flightmodel/position/local_vy`
 - `sim/flightmodel/position/local_vz`
@@ -196,7 +197,7 @@ lat, lon, ele, y_agl, phi, theta, psi_true, vx, vy, vz, p, q, r = xpc.getPOSI()
 
 ### Controlling the Aircraft
 ```python
-sendCTRL(self, lat_control:float, lon_control:float, rudder_control:float, throttle:float, gear:int, flaps:float, speedbrakes:float, park_break:float) -> None
+sendCTRL(lat_control:float, lon_control:float, rudder_control:float, throttle:float, gear:int, flaps:float, speedbrakes:float, park_break:float) -> None
 ```
 
 Sends basic control inputs to the ego aircraft. For more fine-grained control, refer to the DataRefs that can be set using the `setDREF` method.
@@ -208,7 +209,7 @@ Sends basic control inputs to the ego aircraft. For more fine-grained control, r
 - `throttle:float`: Throttle position. Ranges from `[-1, 1]`, where `-1` indicates full reverse thrust and `1` indicates full forward thrust.
 - `gear:int`: Requested gear position. `0` corresponds to gear up, and `1` corresponds to gear down.
 - `flaps:float`: Requested flaps position. Ranges from `[0, 1]`.
-- `speedbrakes:float`: Requested speedbrakes position. Possible values are `-0.5` (armed), `0` (retracted), and `1` (fully deployed).
+- `speedbrakes:float`: Requested speedbrakes position. Possible values are `-0.5` (armed) and the range from `0` (retracted) to `1` (fully deployed).
 - `park_break:float`: Requested park brake ratio. Ranges from `[0, 1]`.
 
 > **Note**: The original aircraft also allows to set the aircraft index. This version currently does not support this functionality. All controls are regarding the ego aircraft.
@@ -221,7 +222,7 @@ xpc.sendCTRL(lat_control=-0.2, lon_control=0.0, rudder_control=0.2, throttle=0.8
 
 ### Pausing and Un-Pausing the Simulator
 ```python
-pauseSIM(self, set_pause:bool) -> None
+pauseSIM(set_pause:bool) -> None
 ```
 Pauses or unpauses the simulator based on the given input.
 

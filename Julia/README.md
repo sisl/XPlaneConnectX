@@ -1,9 +1,10 @@
 # XPlaneConnectX - Julia
 
-This guide is for the Julia version of XPlaneConnectX. The code was developed using Julia 1.10 and X-Plane 12.1. We tested our implementation on Ubuntu 22.04, macOS Sonoma, and Windows 11.
+This guide is for the Julia version of XPlaneConnectX. The code was developed using Julia 1.10 and X-Plane 12.1. We tested our implementation on Ubuntu 22.04, macOS Sonoma, and Windows 11. We also suspect that our code will work with X-Plane 11 since the UDP interface does not seem to have changed.
+
 
 ## Requirements
-No plugins are required, only an installed copy of X-Plane 12 and Julia. Additionally, it is necessary to explicitly "accept incoming connections" in the X-Plane Network settings. By default, it appears that this option is disabled. 
+No plugins are required, only an installed copy of X-Plane 12 and Julia. Additionally, it is necessary to explicitly "accept incoming connections" in the X-Plane network settings. By default, it appears that this option is disabled. 
 
 ## Installation
 There is no specific package installation required for our code as we are only using the standard library of Julia. You only need to make sure the file `XPlaneConnectX.jl` file is visible to your code and include it:
@@ -56,7 +57,7 @@ print(xpc.current_dref_values)  #prints the most recent values received from the
 subscribeDREFs(xpc::XPlaneConnectX, subscribed_drefs::Vector{Tuple{String, Int64}})
 ```
 
-Permanently subscribe to a list of DataRefs with a certain frequency. This method is preferred for obtaining the most up-to-date values for DataRefs that will be used frequently during the runtime of your code. Examples include position, velocity, or attitude. The data will be asynchronously received and processed, unlike the synchronous `getDREF` or `getPOSI` methods. The most recent value for each subscribed DataRef is stored in `xpc.current_dref_values`, which is a dictionary with DataRefs as keys. Each entry contains another dictionary with the keys `"value"` and `"timestamp"` representing the most recent value and the time it was received, respectively.
+Permanently subscribe to a list of DataRefs with a certain frequency. This method is preferred for obtaining the most up-to-date values for DataRefs that will be used frequently during the runtime of your code. Examples include position, velocity, or attitude. The data will be asynchronously received and processed, unlike the synchronous `getDREF` or `getPOSI` methods. The most recent value for each subscribed DataRef is stored in `xpc.current_dref_values`, which is a dictionary with DataRefs as keys. Each entry contains another dictionary with the keys `"value"` and `"timestamp"` representing the most recent value and the time it was received, respectively. A full list of DataRefs can be found in `/.../X-Plane 12/Resources/plugins/DataRefs.txt`. Plugins can define their own DataRefs that you can subscribe to as well. Often, those definitions are stored within the plugin's directory itself.
 
 > **Note**: This function does not exist in the original `XPlaneConnect`, however, for code performance, this functionality can be helpful.
 
@@ -67,7 +68,9 @@ Permanently subscribe to a list of DataRefs with a certain frequency. This metho
 #### Example
 ```julia
 xpc = XPlaneConnectX()
-subscribeDREFs(xpc, [("sim/cockpit2/controls/brake_fan_on", 2), ("sim/flightmodel/position/y_agl", 10)])
+subscribeDREFs(xpc, [("sim/cockpit2/controls/brake_fan_on", 2),  # brake fan at 2Hz
+                     ("sim/flightmodel/position/y_agl", 10)])    # altitude above ground at 10Hz
+print(xpc.current_dref_values)
 ```
 
 ### Reading DataRefs
@@ -75,7 +78,7 @@ subscribeDREFs(xpc, [("sim/cockpit2/controls/brake_fan_on", 2), ("sim/flightmode
 getDREF(xpc::XPlaneConnectX, dref::String) -> Float32
 ```
 
-Gets the current value of a DataRef. This function is intended for one-time use. For DataRefs with frequent use, consider using the permanently observed DataRefs set up when initializing the `XPlaneConnectX` object.
+Gets the current value of a DataRef. This function is intended for one-time use due to its synchronous nature. I.e., calling `getDREF` will block your code until the value is received. For DataRefs with frequent use, consider using the `subscribeDREFs` function. A full list of DataRefs can be found in `/.../X-Plane 12/Resources/plugins/DataRefs.txt`. Plugins can define their own DataRefs that you can subscribe to as well. Often, those definitions are stored within the plugin's directory itself.
 
 #### Arguments
 - `xpc::XPlaneConnectX`: An instance of `XPlaneConnectX` to perform the query.
@@ -95,7 +98,7 @@ value = getDREF(xpc, "sim/cockpit2/controls/brake_fan_on")
 sendDREF(xpc::XPlaneConnectX, dref::String, value::Any)
 ```
 
-Writes a value to the specified DataRef, provided that the DataRef is writable.
+Writes a value to the specified DataRef, provided that the DataRef is writable. A full list of DataRefs can be found in `/.../X-Plane 12/Resources/plugins/DataRefs.txt`. Plugins can define their own DataRefs that you can subscribe to as well. Often, those definitions are stored within the plugin's directory itself.
 
 #### Arguments
 - `xpc::XPlaneConnectX`: An instance of `XPlaneConnectX` used to send the data.
@@ -130,7 +133,7 @@ sendCMND(xpc, "sim/operation/quit")  # Example command to close X-Plane
 sendPOSI(xpc::XPlaneConnectX; lat::Any, lon::Any, elev::Any, phi::Any, theta::Any, psi_true::Any, ac::Int=0)
 ```
 
-Sets the global position and attitude of an airplane. This is the only method to set the latitude and longitude of an airplane, as these DataRefs are not writable. Ensure that the latitude and longitude values are provided as `Float64` as a `Float32` is not accurate enough for precise placement of the aircraft.
+Sets the global position and attitude of an airplane. This is the only method to set the latitude and longitude of an airplane, as these DataRefs are not writable. Ensure that the latitude and longitude values are provided as `Float64` since a `Float32` is not accurate enough for precise placement of the aircraft.
 
 #### Arguments
 - `xpc::XPlaneConnectX`: An instance of `XPlaneConnectX` used to send the position data.
@@ -163,9 +166,9 @@ The function retrieves the following values, which correspond to DataRefs:
 - `sim/flightmodel/position/latitude`
 - `sim/flightmodel/position/elevation`
 - `sim/flightmodel/position/y_agl`
-- `sim/flightmodel/position/true_theta`
+- `sim/flightmodel/position/phi`
+- `sim/flightmodel/position/theta`
 - `sim/flightmodel/position/true_psi`
-- `sim/flightmodel/position/true_phi`
 - `sim/flightmodel/position/local_vx`
 - `sim/flightmodel/position/local_vy`
 - `sim/flightmodel/position/local_vz`
@@ -217,7 +220,7 @@ Sends basic control inputs to the ego aircraft. For more fine-grained control, r
 - `throttle::Number`: Throttle position. Ranges from `[-1, 1]`, where `-1` indicates full reverse thrust and `1` indicates full forward thrust.
 - `gear::Signed`: Requested gear position. `0` corresponds to gear up, and `1` corresponds to gear down.
 - `flaps::Number`: Requested flaps position. Ranges from `[0, 1]`.
-- `speedbrakes::Number`: Requested speedbrakes position. Possible values are `-0.5` (armed), `0` (retracted), and `1` (fully deployed).
+- `speedbrakes::Number`: Requested speedbrakes position. Possible values are `-0.5` (armed) and the range from `0` (retracted) to `1` (fully deployed).
 - `park_break::Number`: Requested park brake ratio. Ranges from `[0, 1]`.
 
 > **Note**: The original aircraft also allows to set the aircraft index. This version currently does not support this functionality. All controls are regarding the ego aircraft.

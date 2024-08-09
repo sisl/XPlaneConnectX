@@ -1,6 +1,6 @@
 using Printf
 
-# import the XPlaneConnect2 code
+# import the XPlaneConnectX code
 include("XPlaneConnectX.jl")
 
 # helper function to print state
