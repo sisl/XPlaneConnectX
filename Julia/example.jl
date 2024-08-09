@@ -12,8 +12,8 @@ function print_state(state)
 end
 
 subscribed_drefs = [
-    ("sim/flightmodel/position/groundspeed",1),    # ground speed in m/s at 10Hz
-    ("sim/flightmodel/position/mag_psi",1),       # magnetic heading in degrees at 10Hz
+    ("sim/flightmodel/position/groundspeed",10),    # ground speed in m/s at 10Hz
+    ("sim/flightmodel/position/mag_psi",10),       # magnetic heading in degrees at 10Hz
 ]
 
 # this assumes you are running X-Plane on the same machine as your code and use the default port 49000 that X-Plane uses for UDP
@@ -36,7 +36,7 @@ sendPOSI(xpc,
          psi_true=psi)  #true (not magnetic) heading
 
 println("Waiting for X-Plane to load scenery...")
-sleep(2)  # X-Plane needs time to load the new scenery for "long jumps"
+sleep(30)  # X-Plane needs time to load the new scenery for "long jumps"
 
 pauseSIM(xpc,false)
 
