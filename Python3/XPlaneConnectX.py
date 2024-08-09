@@ -20,6 +20,8 @@ class XPlaneConnectX():
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.ip = ip
         self.port = port
+        self.reverse_index = {}
+        self.current_dref_values = {}
         
     
     def subscribeDREFs(self, subscribed_drefs:list[Tuple[str,int]]) -> None:
@@ -93,7 +95,7 @@ class XPlaneConnectX():
         """
         
         temp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        idx = max(list(self.reverse_index.keys()))+10   # set the index to the highest index of the permanently observed DataRefs + 10
+        idx = len(list(self.reverse_index.keys()))+10   # set the index to the highest index of the permanently observed DataRefs + 10
         msg = struct.pack("<4sxii400s", b'RREF', 10, idx, dref.encode('utf-8'))   
         temp_socket.sendto(msg, (self.ip, self.port))
 

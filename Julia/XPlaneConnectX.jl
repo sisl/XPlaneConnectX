@@ -128,7 +128,7 @@ value = getDREF(xpc, "sim/cockpit2/controls/brake_fan_on")
 function getDREF(xpc::XPlaneConnectX, dref::String)
     # send request
     temp_socket = UDPSocket()
-    idx = maximum(keys(xpc.reverse_index)) + 10
+    idx = length(keys(xpc.reverse_index)) + 10
     prefix = "RREF"
     buffer = IOBuffer()
     write(buffer, prefix)
