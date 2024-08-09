@@ -29,7 +29,9 @@ A full list of DataRefs can be found in `/.../X-Plane 12/Resources/plugins/DataR
 
 ## Usage and API
 ### Initialization
-    XPlaneConnectX(; ip::String="127.0.0.1", port::Int64=49000)
+```julia
+XPlaneConnectX(; ip::String="127.0.0.1", port::Int64=49000)
+```
 
 Initialize an `XPlaneConnectX` instance.
 
@@ -46,14 +48,17 @@ An instance of `XPlaneConnectX` initialized with a UDP socket, the provided IP a
 ```julia
 xpc = XPlaneConnectX() # Uses default IP and port
 xpc = XPlaneConnectX(ip="192.168.1.10", port=50000) # Custom IP and port
+print(xpc.current_dref_values)  #prints the most recent values received from the subsribed to DataRefs
 ```
 
 ### Subscribing to DataRefs
-    subscribeDREFs(xpc::XPlaneConnectX, subscribed_drefs::Vector{Tuple{String, Int64}})
+```julia
+subscribeDREFs(xpc::XPlaneConnectX, subscribed_drefs::Vector{Tuple{String, Int64}})
+```
 
 Permanently subscribe to a list of DataRefs with a certain frequency. This method is preferred for obtaining the most up-to-date values for DataRefs that will be used frequently during the runtime of your code. Examples include position, velocity, or attitude. The data will be asynchronously received and processed, unlike the synchronous `getDREF` or `getPOSI` methods. The most recent value for each subscribed DataRef is stored in `xpc.current_dref_values`, which is a dictionary with DataRefs as keys. Each entry contains another dictionary with the keys `"value"` and `"timestamp"` representing the most recent value and the time it was received, respectively.
 
-> **Note**: This function does not exist in the original XPlaneConnect, however, for code performance, this functionality can be helpful.
+> **Note**: This function does not exist in the original `XPlaneConnect`, however, for code performance, this functionality can be helpful.
 
 #### Arguments
 - `xpc::XPlaneConnectX`: An instance of `XPlaneConnectX` to which the DataRefs will be subscribed.
@@ -66,7 +71,9 @@ subscribeDREFs(xpc, [("sim/cockpit2/controls/brake_fan_on", 2), ("sim/flightmode
 ```
 
 ### Reading DataRefs
-    getDREF(xpc::XPlaneConnectX, dref::String) -> Float32
+```julia
+getDREF(xpc::XPlaneConnectX, dref::String) -> Float32
+```
 
 Gets the current value of a DataRef. This function is intended for one-time use. For DataRefs with frequent use, consider using the permanently observed DataRefs set up when initializing the `XPlaneConnectX` object.
 
@@ -84,7 +91,9 @@ value = getDREF(xpc, "sim/cockpit2/controls/brake_fan_on")
 ```
 
 ### Sending DataRefs
-    sendDREF(xpc::XPlaneConnectX, dref::String, value::Any)
+```julia
+sendDREF(xpc::XPlaneConnectX, dref::String, value::Any)
+```
 
 Writes a value to the specified DataRef, provided that the DataRef is writable.
 
@@ -100,7 +109,9 @@ sendDREF(xpc, "sim/cockpit/electrical/landing_lights_on", 1.0)  # Turn on the la
 ```
 
 ### Sending Commands
-    sendCMND(xpc::XPlaneConnectX, command::String)
+```julia
+sendCMND(xpc::XPlaneConnectX, command::String)
+```
 
 Sends simulator commands to the simulator. These commands are not for (only) controlling airplanes but for operating the simulator itself (e.g., closing X-Plane or taking a screenshot). A full list of all commands can be found in `/.../X-Plane 12/Resources/plugins/Commands.txt`. Addons for X-Plane can define additional commands that can be triggered through this interface as well.
 
@@ -115,7 +126,9 @@ sendCMND(xpc, "sim/operation/quit")  # Example command to close X-Plane
 ```
 
 ### Setting an Aircraft Position
-    sendPOSI(xpc::XPlaneConnectX; lat::Any, lon::Any, elev::Any, phi::Any, theta::Any, psi_true::Any, ac::Int=0)
+```julia
+sendPOSI(xpc::XPlaneConnectX; lat::Any, lon::Any, elev::Any, phi::Any, theta::Any, psi_true::Any, ac::Int=0)
+```
 
 Sets the global position and attitude of an airplane. This is the only method to set the latitude and longitude of an airplane, as these DataRefs are not writable. Ensure that the latitude and longitude values are provided as `Float64` as a `Float32` is not accurate enough for precise placement of the aircraft.
 
@@ -129,16 +142,18 @@ Sets the global position and attitude of an airplane. This is the only method to
 - `psi_true::Any`: True heading (not magnetic) in degrees. This should be a `Float32`.
 - `ac::Int=0`: Index of the aircraft to set the position for. `0` refers to the ego aircraft. Defaults to `0`.
 
-> **Note**: The original XPlaneConnect also specifies a landing gear position.
+> **Note**: The original `XPlaneConnect` also specifies a landing gear position.
 
 #### Example
 ```julia
 xpc = XPlaneConnectX()
-sendPOSI(xpc, 37.7749, -122.4194, 100.0, 0.0, 0.0, 90.0)
+sendPOSI(xpc, 37.77493142132, -122.4194526721, 500.0, 0.0, 0.0, 90.0)
 ```
 
 ### Reading the Position of an Aircraft
-    getPOSI(xpc::XPlaneConnectX) -> Tuple{Float64, Float64, Float64, Float32, Float32, Float32, Float32, Float32, Float32, Float32, Float32, Float32}
+```julia
+getPOSI(xpc::XPlaneConnectX) -> Tuple{Float64, Float64, Float64, Float32, Float32, Float32, Float32, Float32, Float32, Float32, Float32, Float32}
+```
 
 Gets the global position of the ego aircraft. If this information is needed frequently, consider using the permanently observed DataRefs set up when initializing the `XPlaneConnectX` object.
 
@@ -179,7 +194,7 @@ The function retrieves the following values, which correspond to DataRefs:
   - `Float32`: Pitch rate in radians per second
   - `Float32`: Yaw rate in radians per second
 
-> **Note**: The original XPlaneConnect returns the following values: latitude, longitude, altitude above MSL, pitch angle, roll angle, true heading, and the position of the landing gear. 
+> **Note**: The original `XPlaneConnect` returns the following values: latitude, longitude, altitude above MSL, pitch angle, roll angle, true heading, and the position of the landing gear. 
 
 #### Example
 ```julia
@@ -188,7 +203,9 @@ lat, lon, ele, y_agl, phi, theta, psi_true, vx, vy, vz, p, q, r = getPOSI(xpc)
 ```
 
 ### Controlling the Aircraft
-    sendCTRL(xpc::XPlaneConnectX; lat_control::Number, lon_control::Number, rudder_control::Number, throttle::Number, gear::Signed, flaps::Number, speedbrakes::Number, park_break::Number)
+```julia
+sendCTRL(xpc::XPlaneConnectX; lat_control::Number, lon_control::Number, rudder_control::Number, throttle::Number, gear::Signed, flaps::Number, speedbrakes::Number, park_break::Number)
+```
 
 Sends basic control inputs to the ego aircraft. For more fine-grained control, refer to the DataRefs that can be set using the `setDREF` method.
 
@@ -212,7 +229,9 @@ sendCTRL(xpc, lat_control=-0.2, lon_control=0.0, rudder_control=0.2, throttle=0.
 ```
 
 ### Pausing and Un-Pausing the Simulator
-    pause(xpc::XPlaneConnectX, set_pause::Bool)
+```julia
+pause(xpc::XPlaneConnectX, set_pause::Bool)
+```
 
 Pauses or unpauses the simulator based on the given input.
 

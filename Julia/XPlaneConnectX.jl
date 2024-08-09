@@ -302,6 +302,7 @@ The function retrieves the following values, which correspond to DataRefs:
 ```julia
 xpc = XPlaneConnectX()
 lat, lon, ele, y_agl, phi, theta, psi_true, vx, vy, vz, p, q, r = getPOSI(xpc)
+```
 """
 function getPOSI(xpc::XPlaneConnectX)
     # send request
@@ -368,6 +369,7 @@ Sends basic control inputs to the ego aircraft. For more fine-grained control, r
 ```julia
 xpc = XPlaneConnectX()
 sendCTRL(xpc, lat_control=-0.2, lon_control=0.0, rudder_control=0.2, throttle=0.8, gear=1, flaps=0.5, speedbrakes=0, park_break=0)
+```
 """
 function sendCTRL(xpc::XPlaneConnectX; lat_control::Number, lon_control::Number, rudder_control::Number, throttle::Number, gear::Signed, flaps::Number, speedbrakes::Number, park_break::Number)
     # lateral control
@@ -474,6 +476,7 @@ Pauses or unpauses the simulator based on the given input.
 xpc = XPlaneConnectX()
 pauseSIM(xpc, true)  # Pauses the simulator
 pauseSIM(xpc, false) # Unpauses the simulator
+```
 """
 function pauseSIM(xpc::XPlaneConnectX, set_pause::Bool)
     if set_pause
