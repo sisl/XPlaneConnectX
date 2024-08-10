@@ -213,7 +213,7 @@ function sendCMND(xpc::XPlaneConnectX, command::String)
     buffer = IOBuffer()
     write(buffer, prefix)                    # 4s
     write(buffer, UInt8(0))                  # x (padding byte)
-    write(buffer, command)                       # 500s
+    write(buffer, command)                   # 500s
     write(buffer, repeat([UInt8(0)], 500 - length(command)))  # pad the string to 500 bytes
     send(xpc.sock, IPv4(xpc.ip), xpc.port, take!(buffer))
 end
