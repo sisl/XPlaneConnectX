@@ -25,7 +25,7 @@ At the moment, the following functions are supported:
 
 A full list of DataRefs can be found in `/.../X-Plane 12/Resources/plugins/DataRefs.txt` and full list of commands in `/.../X-Plane 12/Resources/plugins/Commands.txt`.
 
-> **Note**: The names of the functions is taken from the original `XPlaneConnect`. However, some functions have slightly different arguments or return a slightly different set of values than the original `XPlaneConnect`. Where applicable, we note this in the API.
+> **Note**: The names of the functions are taken from the original `XPlaneConnect`. However, some functions have slightly different arguments or return a slightly different set of values than the original `XPlaneConnect`. Where applicable, we note this in the API.
 
 ## Usage and API
 ### Initialization
@@ -67,7 +67,7 @@ Permanently subscribe to a list of DataRefs with a certain frequency. This metho
 xpc = XPlaneConnectX()
 xpc.subscribeDREFs([("sim/cockpit2/controls/brake_fan_on", 2),  # brake fan at 2Hz
                     ("sim/flightmodel/position/y_agl", 10)])    # altitude above ground at 10Hz
-print(xpc.current_dref_values)  #prints the most recent values received from the subsribed to DataRefs
+print(xpc.current_dref_values)  #prints the most recent values received from the subscribed to DataRefs
 ```
 
 ### Reading DataRefs
