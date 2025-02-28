@@ -53,7 +53,7 @@ sendCTRL(xpc,
          gear=1,               # landing gear down
          flaps=0,              # no flaps
          speedbrakes=0,        # no speedbrakes
-         park_break=0,         # parking brake released
+         park_brake=0,         # parking brake released
         )   
 
 # Taxi for 10s and print the observed DataRefs once per second
@@ -62,7 +62,7 @@ for i=1:10
     sleep(1)
 end
 
-sendCTRL(xpc,lat_control=0,lon_control=0,rudder_control=0,throttle=0,gear=1,flaps=0,speedbrakes=0,park_break=1)   # no throttle, parking brake set      
+sendCTRL(xpc,lat_control=0,lon_control=0,rudder_control=0,throttle=0,gear=1,flaps=0,speedbrakes=0,park_brake=1)   # no throttle, parking brake set      
 
 println("The current position is: ", getPOSI(xpc)) 
 

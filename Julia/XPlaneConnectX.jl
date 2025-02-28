@@ -351,7 +351,7 @@ function getPOSI(xpc::XPlaneConnectX)
 end
 
 """
-    sendCTRL(xpc::XPlaneConnectX; lat_control::Number, lon_control::Number, rudder_control::Number, throttle::Number, gear::Signed, flaps::Number, speedbrakes::Number, park_break::Number)
+    sendCTRL(xpc::XPlaneConnectX; lat_control::Number, lon_control::Number, rudder_control::Number, throttle::Number, gear::Signed, flaps::Number, speedbrakes::Number, park_brake::Number)
 
 Sends basic control inputs to the ego aircraft. For more fine-grained control, refer to the DataRefs that can be set using the `setDREF` method.
 
@@ -364,15 +364,15 @@ Sends basic control inputs to the ego aircraft. For more fine-grained control, r
 - `gear::Signed`: Requested gear position. `0` corresponds to gear up, and `1` corresponds to gear down.
 - `flaps::Number`: Requested flaps position. Ranges from `[0, 1]`.
 - `speedbrakes::Number`: Requested speedbrakes position. Possible values are `-0.5` (armed), `0` (retracted), and `1` (fully deployed).
-- `park_break::Number`: Requested park brake ratio. Ranges from `[0, 1]`.
+- `park_brake::Number`: Requested park brake ratio. Ranges from `[0, 1]`.
 
 # Example
 ```julia
 xpc = XPlaneConnectX()
-sendCTRL(xpc, lat_control=-0.2, lon_control=0.0, rudder_control=0.2, throttle=0.8, gear=1, flaps=0.5, speedbrakes=0, park_break=0)
+sendCTRL(xpc, lat_control=-0.2, lon_control=0.0, rudder_control=0.2, throttle=0.8, gear=1, flaps=0.5, speedbrakes=0, park_brake=0)
 ```
 """
-function sendCTRL(xpc::XPlaneConnectX; lat_control::Number, lon_control::Number, rudder_control::Number, throttle::Number, gear::Signed, flaps::Number, speedbrakes::Number, park_break::Number)
+function sendCTRL(xpc::XPlaneConnectX; lat_control::Number, lon_control::Number, rudder_control::Number, throttle::Number, gear::Signed, flaps::Number, speedbrakes::Number, park_brake::Number)
     # lateral control
     dref = "sim/cockpit2/controls/yoke_roll_ratio"
     prefix = "DREF"
@@ -457,7 +457,7 @@ function sendCTRL(xpc::XPlaneConnectX; lat_control::Number, lon_control::Number,
     buffer = IOBuffer()
     write(buffer, prefix)
     write(buffer, UInt8(0))
-    write(buffer, Float32(park_break))
+    write(buffer, Float32(park_brake))
     write(buffer, dref)
     write(buffer, repeat([UInt8(0)], 500 - length(dref)))  # pad the string to 500 bytes
     send(xpc.sock, IPv4(xpc.ip), xpc.port, take!(buffer))   

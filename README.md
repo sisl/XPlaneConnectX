@@ -37,7 +37,7 @@ xpc.sendCTRL(lat_control=0.0,       # yoke rotation neutral
              gear=1,                # landing gear down
              flaps=1.0,             # flaps fully extended
              speedbrakes=0.0,       # no speedbrakes
-             park_break=1.0)        # parking brake set
+             park_brake=1.0)        # parking brake set
 ```
 
 In Julia:
@@ -54,7 +54,7 @@ sendCTRL(xpc,                   # XPlaneConnectX struct
          gear=1,                # landing gear down
          flaps=1.0,             # flaps fully extended
          speedbrakes=0.0,       # no speedbrakes
-         park_break=1.0)        # parking brake set
+         park_brake=1.0)        # parking brake set
 ```
 
 The resulting output:

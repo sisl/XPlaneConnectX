@@ -230,7 +230,7 @@ class XPlaneConnectX():
                 raise ValueError("Received invalid header.")
             
     
-    def sendCTRL(self, lat_control:float, lon_control:float, rudder_control:float, throttle:float, gear:int, flaps:float, speedbrakes:float, park_break:float) -> None:
+    def sendCTRL(self, lat_control:float, lon_control:float, rudder_control:float, throttle:float, gear:int, flaps:float, speedbrakes:float, park_brake:float) -> None:
         """Send basic controls to the ego aircraft. There are hundreds of DataRefs that provide more fine-grained control. These can be set through the setDREF method.
 
         Args:
@@ -241,11 +241,11 @@ class XPlaneConnectX():
             gear (int): Requested gear position. 0 corresponds to gear up, and 1 corresponds to gear down.
             flaps (float): Requested flaps position. Ranges from [0...1].
             speedbrakes (float): Requested speedbakes position. Possible values are {-0.5, [0...1]} where -0.5 means the speedbrake is armed, 0 is retracted, and 1 is fully deployed.
-            park_break (float): Requested park break ratio. Ranged from [0...1]
+            park_brake (float): Requested park brake ratio. Ranged from [0...1]
         
         Example:
             xpc = XPlaneConnectX()
-            xpc.sendCTRL(lat_control=-0.2, lon_control=0.0, rudder_control=0.2, throttle=0.8, gear=1, flaps=0.5, speedbrakes=0, park_break=0)
+            xpc.sendCTRL(lat_control=-0.2, lon_control=0.0, rudder_control=0.2, throttle=0.8, gear=1, flaps=0.5, speedbrakes=0, park_brake=0)
         """
         
         # lateral control
@@ -286,7 +286,7 @@ class XPlaneConnectX():
         
         # park brake
         dref = "sim/cockpit2/controls/parking_brake_ratio"
-        msg = struct.pack('<4sxf500s', b'DREF', park_break, dref.encode('UTF-8'))
+        msg = struct.pack('<4sxf500s', b'DREF', park_brake, dref.encode('UTF-8'))
         self.sock.sendto(msg, (self.ip, self.port))
 
     

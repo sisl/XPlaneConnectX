@@ -197,7 +197,7 @@ lat, lon, ele, y_agl, phi, theta, psi_true, vx, vy, vz, p, q, r = xpc.getPOSI()
 
 ### Controlling the Aircraft
 ```python
-sendCTRL(lat_control:float, lon_control:float, rudder_control:float, throttle:float, gear:int, flaps:float, speedbrakes:float, park_break:float) -> None
+sendCTRL(lat_control:float, lon_control:float, rudder_control:float, throttle:float, gear:int, flaps:float, speedbrakes:float, park_brake:float) -> None
 ```
 
 Sends basic control inputs to the ego aircraft. For more fine-grained control, refer to the DataRefs that can be set using the `setDREF` method.
@@ -210,14 +210,14 @@ Sends basic control inputs to the ego aircraft. For more fine-grained control, r
 - `gear:int`: Requested gear position. `0` corresponds to gear up, and `1` corresponds to gear down.
 - `flaps:float`: Requested flaps position. Ranges from `[0, 1]`.
 - `speedbrakes:float`: Requested speedbrakes position. Possible values are `-0.5` (armed) and the range from `0` (retracted) to `1` (fully deployed).
-- `park_break:float`: Requested park brake ratio. Ranges from `[0, 1]`.
+- `park_brake:float`: Requested park brake ratio. Ranges from `[0, 1]`.
 
 > **Note**: The original aircraft also allows to set the aircraft index. This version currently does not support this functionality. All controls are regarding the ego aircraft.
 
 #### Example
 ```python
 xpc = XPlaneConnectX()
-xpc.sendCTRL(lat_control=-0.2, lon_control=0.0, rudder_control=0.2, throttle=0.8, gear=1, flaps=0.5, speedbrakes=0, park_break=0)
+xpc.sendCTRL(lat_control=-0.2, lon_control=0.0, rudder_control=0.2, throttle=0.8, gear=1, flaps=0.5, speedbrakes=0, park_brake=0)
 ```
 
 ### Pausing and Un-Pausing the Simulator

@@ -51,7 +51,7 @@ xpc.sendCTRL(lat_control=0,         # yoke in neutral position
              gear=1,                # landing gear down
              flaps=0,               # no flaps
              speedbrakes=0,         # no speedbrakes
-             park_break=0,          # parking brake released
+             park_brake=0,          # parking brake released
              )    
 
 # Taxi for 10s and print the observed DataRefs once per second

@@ -207,7 +207,7 @@ lat, lon, ele, y_agl, phi, theta, psi_true, vx, vy, vz, p, q, r = getPOSI(xpc)
 
 ### Controlling the Aircraft
 ```julia
-sendCTRL(xpc::XPlaneConnectX; lat_control::Number, lon_control::Number, rudder_control::Number, throttle::Number, gear::Signed, flaps::Number, speedbrakes::Number, park_break::Number)
+sendCTRL(xpc::XPlaneConnectX; lat_control::Number, lon_control::Number, rudder_control::Number, throttle::Number, gear::Signed, flaps::Number, speedbrakes::Number, park_brake::Number)
 ```
 
 Sends basic control inputs to the ego aircraft. For more fine-grained control, refer to the DataRefs that can be set using the `setDREF` method.
@@ -221,14 +221,14 @@ Sends basic control inputs to the ego aircraft. For more fine-grained control, r
 - `gear::Signed`: Requested gear position. `0` corresponds to gear up, and `1` corresponds to gear down.
 - `flaps::Number`: Requested flaps position. Ranges from `[0, 1]`.
 - `speedbrakes::Number`: Requested speedbrakes position. Possible values are `-0.5` (armed) and the range from `0` (retracted) to `1` (fully deployed).
-- `park_break::Number`: Requested park brake ratio. Ranges from `[0, 1]`.
+- `park_brake::Number`: Requested park brake ratio. Ranges from `[0, 1]`.
 
 > **Note**: The original aircraft also allows to set the aircraft index. This version currently does not support this functionality. All controls are regarding the ego aircraft.
 
 #### Example
 ```julia
 xpc = XPlaneConnectX()
-sendCTRL(xpc, lat_control=-0.2, lon_control=0.0, rudder_control=0.2, throttle=0.8, gear=1, flaps=0.5, speedbrakes=0, park_break=0)
+sendCTRL(xpc, lat_control=-0.2, lon_control=0.0, rudder_control=0.2, throttle=0.8, gear=1, flaps=0.5, speedbrakes=0, park_brake=0)
 ```
 
 ### Pausing and Un-Pausing the Simulator
