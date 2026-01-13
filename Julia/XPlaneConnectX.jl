@@ -10,7 +10,7 @@ mutable struct XPlaneConnectX
     reverse_index::Dict{Int, String}
     current_dref_values::Dict{String, Dict{String, Any}}
     recording_in_progress::Bool
-    recorded_data::Dict
+    recorded_data::Dict{String, Vector{Dict{String, Any}}}
 
 end
 
@@ -34,8 +34,16 @@ xpc = XPlaneConnectX(ip="192.168.1.10", port=50000) # Custom IP and port
 """
 function XPlaneConnectX(; ip::String="127.0.0.1", port::Int64=49000)
     sock = UDPSocket()
-    xpc = XPlaneConnectX(sock, ip, port, [], Dict(), Dict())
-    return xpc
+    return XPlaneConnectX(
+        sock,
+        ip,
+        port,
+        Tuple{String, Int}[],
+        Dict{Int, String}(),
+        Dict{String, Dict{String, Any}}(),
+        false,
+        Dict{String, Vector{Dict{String, Any}}}()
+    )
 end
 
 """
@@ -104,6 +112,7 @@ function _observe(xpc::XPlaneConnectX,delay::Float64)
                     # save off if recording is in progress
                     if xpc.recording_in_progress
                         push!(xpc.recorded_data[xpc.reverse_index[idx]], dref_dict)
+                    end
                 else
                     error("Received a packet with invalid index.")
                 end
