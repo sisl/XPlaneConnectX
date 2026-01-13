@@ -21,6 +21,8 @@ The following functions are currently supported (the links take you to the langu
 
 
 > **Before your start**: Ensure that X-Plane accepts incoming connections. For X-Plane 12, this seems to be disabled by default, but can be changed at the bottom of the network settings menu in X-Plane.
+> 
+> **Firewall Rules**: If you are running X-Plane on a remote machine, make sure to set up the appropriate firewall rules. Port 49000-49001 UDP is the default for X-Plane. Especially on Windows, this needs to be manually configured in the Firewall settings.
 
 The following minimalistic example shows how to fully extend the flaps.
 
