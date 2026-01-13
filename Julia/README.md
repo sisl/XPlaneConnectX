@@ -73,6 +73,33 @@ subscribeDREFs(xpc, [("sim/cockpit2/controls/brake_fan_on", 2),  # brake fan at 
 print(xpc.current_dref_values)
 ```
 
+### Recordings
+```julia
+startRECORDING() -> None
+stopRECORDING() -> Dict
+```
+
+With this set of functions, all messages that are received for the subscribed DataRefs, can be recorded and used for further applications. `startRECORDING` clears `xpc.recorded_data` and all all messages from the subsribed DataRefs are added to a `xpc.recorded_data`. `stopRECORDING` stops the recording process and returns `xpc.recorded_data`, a dictionary with the DatRefs as keys and a list of dictionaries (`{'value':..., 'timestamp':...}`) as values. Since the subscribed DataRefs can be at different frequencies and X-Plane does not send the data at the exact same time, the data is not synchronized. If this is desirable for the user's application, this must be done using post-processing.
+
+#### Arguments
+No arguments are supported at this point.
+
+#### Example
+```julia
+xpc = XPlaneConnectX()
+subscribeDREFs(xpc, [("sim/cockpit2/controls/brake_fan_on", 2),  # brake fan at 2Hz
+                     ("sim/flightmodel/position/y_agl", 10)])    # altitude above ground at 10Hz
+
+startRECORDING(xpc)  # start the recording of data
+sleep(5) # data is collected in a separate thread, so even using blocking functions like time.sleep, will not interrupt the data collection
+data = stopRECORDING(xpc)  # data is returned as dictionary
+
+println(collect(keys(data)))  #prints the keys, i.e., 'sim/cockpit2/controls/brake_fan_on' and 'sim/flightmodel/position/y_agl'
+println(length(data["sim/cockpit2/controls/brake_fan_on"])) 
+println(ength(data["sim/flightmodel/position/y_agl"]))
+```
+
+
 ### Reading DataRefs
 ```julia
 getDREF(xpc::XPlaneConnectX, dref::String) -> Float32
