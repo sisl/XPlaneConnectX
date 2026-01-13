@@ -42,6 +42,8 @@ class XPlaneConnectX():
         """
         
         self.subscribed_drefs = subscribed_drefs
+        self.recording_in_progress = False
+        self.recorded_data = {}
         
         # initialize the current data dictionary that always contains the most up-to-date data received from the simulator
         self.reverse_index = {i:sdf[0] for i,sdf in enumerate(self.subscribed_drefs)}
@@ -71,7 +73,12 @@ class XPlaneConnectX():
                     idx, value = struct.unpack("<if", p_data)
                     if idx in self.reverse_index.keys():    # if not in self.reverse_idx, the received packet is for the getDREF method
                         # write current values to the self.current_dref_values dictionary
-                        self.current_dref_values[self.reverse_index[idx]] = {'value':value, 'timestamp':datetime.datetime.now()}
+                        dref_dict = {'value':value, 'timestamp':datetime.datetime.now()}
+                        self.current_dref_values[self.reverse_index[idx]] = dref_dict
+                        
+                        # save off if recording is in progress
+                        if self.recording_in_progress:
+                            self.recorded_data[self.reverse_index[idx]].append(dref_dict)
                     else:
                         raise ValueError("Received a packet with invalid index.")
     
@@ -79,6 +86,15 @@ class XPlaneConnectX():
         observe_thread = threading.Thread(target=self._observe)
         observe_thread.daemon = True
         observe_thread.start()
+    
+    def startRECORDING(self) -> None:
+        self.recorded_data = {dref[0]:[] for dref in self.subscribed_drefs}
+        self.recording_in_progress = True
+    
+    def stopRECORDING(self) -> dict:
+        self.recording_in_progress = False
+        
+        return self.recorded_data
         
     def getDREF(self, dref:str) -> float:
         """Gets the current value of a DataRef. This is only intended for one-time use. For datarefs with frequent use, consider using the permanently observed DataRefs that can be setup when initializing the XPlaneConnectX object.
