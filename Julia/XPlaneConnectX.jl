@@ -9,6 +9,9 @@ mutable struct XPlaneConnectX
     subscribed_drefs::Vector{Tuple{String, Int}}
     reverse_index::Dict{Int, String}
     current_dref_values::Dict{String, Dict{String, Any}}
+    recording_in_progress::Bool
+    recorded_data::Dict
+
 end
 
 """
@@ -52,8 +55,13 @@ subscribeDREFs(xpc, [("sim/cockpit2/controls/brake_fan_on", 2), ("sim/flightmode
 """
 function subscribeDREFs(xpc::XPlaneConnectX, subscribed_drefs::Vector{Tuple{String, Int64}})
     xpc.subscribed_drefs = subscribed_drefs
+    xpc.recording_in_progress = false
+    xpc.recorded_data = Dict()
+
+    # initialize the current data dictionary that always contains the most up-to-date data received from the simulator
     xpc.reverse_index = Dict(i => sdf[1] for (i, sdf) in enumerate(subscribed_drefs))
     xpc.current_dref_values = Dict(sdf[1] => Dict("value" => nothing, "timestamp" => nothing) for sdf in subscribed_drefs)
+    
     _create_observation_requests(xpc)
     _observe_async(xpc)
 end
@@ -90,7 +98,12 @@ function _observe(xpc::XPlaneConnectX,delay::Float64)
                 idx, value = reinterpret(Int32, p_data[1:4])[1], reinterpret(Float32, p_data[5:8])[1]
                 if idx in keys(xpc.reverse_index)
                     # write current values to the xpc.current_dref_values dictionary
-                    xpc.current_dref_values[xpc.reverse_index[idx]] = Dict("value" => value, "timestamp" => now())
+                    dref_dict = Dict("value" => value, "timestamp" => now())
+                    xpc.current_dref_values[xpc.reverse_index[idx]] = dref_dict
+
+                    # save off if recording is in progress
+                    if xpc.recording_in_progress
+                        push!(xpc.recorded_data[xpc.reverse_index[idx]], dref_dict)
                 else
                     error("Received a packet with invalid index.")
                 end
@@ -105,6 +118,18 @@ function _observe_async(xpc::XPlaneConnectX;delay::Float64=0.01)
     #block the synchronous code as well to avoid that xpc.current_dref_values is read before they are ready
     sleep(delay)    
     # _observe(xpc)
+end
+
+function startRECORDING(xpc::XPlaneConnectX)
+    xpc.recorded_data = Dict(dref[1] => [] for dref in xpc.subscribed_drefs)
+    xpc.recording_in_progress = true
+
+end
+
+function stopRECORDING(xpc::XPlaneConnectX)
+    xpc.recording_in_progress = false
+
+    return xpc.recorded_data
 end
 
 """
