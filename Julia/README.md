@@ -78,13 +78,15 @@ print(xpc.current_dref_values)
 ### Recordings
 ```julia
 startRECORDING(xpc::XPlaneConnectX)
-stopRECORDING(xpc::XPlaneConnectX) -> Dict
+stopRECORDING(xpc::XPlaneConnectX) -> [Dict, DataFrame]
 ```
 
 With this set of functions, all messages that are received for the subscribed DataRefs, can be recorded and used for further applications. `startRECORDING` clears `xpc.recorded_data` and all all messages from the subscribed DataRefs are added to a `xpc.recorded_data`. `stopRECORDING` stops the recording process and returns `xpc.recorded_data`, a dictionary with the DatRefs as keys and a list of dictionaries (`{'value':..., 'timestamp':...}`) as values. Since the subscribed DataRefs can be at different frequencies and X-Plane does not send the data at the exact same time, the data is not synchronized. If this is desirable for the user's application, this must be done using post-processing.
 
 #### Arguments
-No arguments are supported at this point.
+- `startRECORDING` does not take any arguments
+- `stopRECORDING`
+  - `synchronize` can be either a boolean or number. If `false`, the data is not synchronized (default). If `true` the data is synchronized to the lowest frequency in `xpc.subscribed_datarefs` and returned as DataFrame.  
 
 #### Example
 ```julia
@@ -95,6 +97,10 @@ subscribeDREFs(xpc, [("sim/cockpit2/controls/brake_fan_on", 2),  # brake fan at 
 startRECORDING(xpc)  # start the recording of data
 sleep(5) # data is collected in a separate thread, so even using blocking functions like time.sleep, will not interrupt the data collection
 data = stopRECORDING(xpc)  # data is returned as dictionary
+
+startRECORDING(xpc)
+sleep(5)
+data_synchronized = stopRECORDING(xpc, synchronize=5) # synchronize data to 5Hz, returned as DataFrame
 
 println(collect(keys(data)))  #prints the keys, i.e., 'sim/cockpit2/controls/brake_fan_on' and 'sim/flightmodel/position/y_agl'
 println(length(data["sim/cockpit2/controls/brake_fan_on"])) # should be about 10

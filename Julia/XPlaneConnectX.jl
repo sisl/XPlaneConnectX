@@ -1,6 +1,8 @@
 using Sockets
 using Base.Threads
 using Dates
+using DataFrames
+using Interpolations
 
 mutable struct XPlaneConnectX
     sock::UDPSocket
@@ -130,15 +132,145 @@ function _observe_async(xpc::XPlaneConnectX;delay::Float64=0.01)
 end
 
 function startRECORDING(xpc::XPlaneConnectX)
+
+    if xpc.recording_in_progress
+        @warn "Recording was interrupted by the start of a new recording. Data from the previous recording is lost."
+    end
+
     xpc.recorded_data = Dict(dref[1] => [] for dref in xpc.subscribed_drefs)
     xpc.recording_in_progress = true
 
 end
 
-function stopRECORDING(xpc::XPlaneConnectX)
-    xpc.recording_in_progress = false
 
-    return xpc.recorded_data
+
+"""
+    stopRECORDING(xpc; synchronize=false)
+
+Terminates the recording and returns a dictionary of vectors that contain the recorded 
+values for the subscribed DataRefs along with the timestamp when they were received.
+
+# Arguments
+- `xpc`: XPlaneConnectX object
+- `synchronize::Union{Nothing, Bool, Float64}=nothing`: 
+    - `false`: return raw unsynchronized data
+    - `true`: synchronize to lowest subscribed frequency
+    - `Float64`: synchronize to specified frequency in Hz
+
+# Returns
+- `Dict` or `DataFrame`: Dictionary with DataRefs as keys and vectors of NamedTuples 
+  `(value=..., timestamp=...)` as values, or synchronized DataFrame if synchronize is specified
+
+# Example
+```julia
+xpc = XPlaneConnectX()
+subscribe_drefs(xpc, [("sim/cockpit2/controls/brake_fan_on", 2),   # brake fan at 2Hz
+                       ("sim/flightmodel/position/y_agl", 10)])      # altitude above ground at 10Hz
+start_recording(xpc)  # start the recording of data
+# ... do something else
+data = stop_recording(xpc)  # data is returned as dictionary
+```
+"""
+function stopRECORDING(xpc; synchronize=false)
+    if !xpc.recording_in_progress
+        @error "Recording was not started before it was stopped."
+    end
+    
+    xpc.recording_in_progress = false
+    
+    if synchronize === false
+        return xpc.recorded_data
+    elseif synchronize isa Float64 || synchronize isa Int
+        return _synchronize_measurements(xpc.recorded_data, xpc.subscribed_drefs, 
+                                       target_frequency_hz=Float64(synchronize))
+    elseif synchronize === true
+        # Default to the lowest frequency in subscribed_drefs
+        freq = minimum([sdf[2] for sdf in xpc.subscribed_drefs])
+        return _synchronize_measurements(xpc.recorded_data, xpc.subscribed_drefs,
+                                       target_frequency_hz=freq)
+    else
+        error("Invalid synchronize parameter. Expected nothing, Bool, or Float64, got $(typeof(synchronize))")
+    end
+end
+
+
+"""
+    _synchronize_measurements(data_dict, subscribed_drefs; target_frequency_hz=10.0)
+
+Synchronize measurements from multiple sensors to a common frequency.
+
+# Parameters
+- `data_dict`: Dictionary where keys are column names and values are vectors of Dicts
+  or NamedTuples with "value" and "timestamp" fields
+- `target_frequency_hz`: Target frequency in Hz
+
+# Returns
+- `DataFrame`: Synchronized DataFrame with timestamp index
+"""
+function _synchronize_measurements(data_dict, subscribed_drefs; target_frequency_hz=10.0)
+    # Check frequency warning
+    min_freq = minimum([sdr[2] for sdr in subscribed_drefs])
+    if target_frequency_hz > min_freq
+        @warn "Requested DataRef frequency is higher than the minimum subscribed DataRef frequency."
+    end
+    
+    # Early return for empty input
+    if isempty(data_dict) || all(isempty(v) for v in values(data_dict))
+        return DataFrame()
+    end
+    
+    # Process each sensor's data
+    processed_data = Dict{String, Tuple{Vector{DateTime}, Vector{Float64}}}()
+    
+    for (column_name, measurements) in data_dict
+        if isempty(measurements)
+            continue
+        end
+        
+        # Handle both Dict and NamedTuple
+        if eltype(measurements) <: Dict
+            # Extract from Dict with string keys
+            timestamps = DateTime.([m["timestamp"] for m in measurements])
+            values = Float64.([m["value"] for m in measurements])
+        else
+            # Extract from NamedTuple or struct
+            timestamps = DateTime.(getfield.(measurements, :timestamp))
+            values = Float64.(getfield.(measurements, :value))
+        end
+        
+        processed_data[column_name] = (timestamps, values)
+    end
+    
+    if isempty(processed_data)
+        return DataFrame()
+    end
+    
+    # Find common time range
+    start_time = maximum(minimum(times) for (times, _) in values(processed_data))
+    end_time = minimum(maximum(times) for (times, _) in values(processed_data))
+    
+    # Create common time index
+    period_ns = Int(round(1/target_frequency_hz * 1e9))
+    common_index = collect(start_time:Nanosecond(period_ns):end_time)
+    common_index_unix = datetime2unix.(common_index)
+    
+    # Build result DataFrame
+    result = DataFrame(timestamp = common_index)
+    
+    # Interpolate each column
+    for (column_name, (timestamps, values)) in processed_data
+        timestamps_unix = datetime2unix.(timestamps)
+        
+        # Create interpolation
+        itp = LinearInterpolation(timestamps_unix, values)
+        
+        # Interpolate to common index
+        interpolated = itp.(common_index_unix)
+        
+        result[!, Symbol(column_name)] = interpolated
+    end
+    
+    return result
 end
 
 """

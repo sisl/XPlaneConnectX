@@ -3,6 +3,7 @@ import socket
 import threading
 import datetime
 from typing import Tuple
+import pandas as pd
 
 class XPlaneConnectX():
     def __init__(self,ip:str='127.0.0.1',port:int=49000) -> None:
@@ -88,13 +89,124 @@ class XPlaneConnectX():
         observe_thread.start()
     
     def startRECORDING(self) -> None:
+        """Starts a recording of the subscribed DataRefs into self.recorded_data. Data is stored in self.recored_data. See `stopRECORDING` for the format the data is saved in self.recorded_data.
+        
+        Example:
+            xpc = XPlaneConnectX()
+            xpc.subscribeDREFs([("sim/cockpit2/controls/brake_fan_on", 2),  # brake fan at 2Hz
+                                ("sim/flightmodel/position/y_agl", 10)])    # altitude above ground at 10Hz
+            xpc.startRECORDING()  # start the recording of data
+            # ... do something else
+            xpc.startRECORDING()  # Will display a warning and the current recording in progress will be overwritten.
+        """
+        if self.recording_in_progress:
+            print("Warning: Recording was interrupted by the start of a new recording. Data from the previous recording is lost.")
+        
         self.recorded_data = {dref[0]:[] for dref in self.subscribed_drefs}
         self.recording_in_progress = True
     
-    def stopRECORDING(self) -> dict:
+    def stopRECORDING(self, synchronize=False) -> dict:
+        """
+        Terminates the recording and returns a dictionary of lists that contain the recorded 
+        values for the subscribed DataRefs along with the timestamp when they were received.
+
+        Parameters:
+            synchronize : bool, or float, optional
+                - False: return raw unsynchronized data (default)
+                - True: synchronize to lowest subscribed frequency
+                - float: synchronize to specified frequency in Hz
+
+        Returns:
+            dict or pd.DataFrame
+                Dictionary with DataRefs as keys and lists of dicts with 'value' and 'timestamp' 
+                keys, or synchronized DataFrame if synchronize is specified
+
+        Example:
+            xpc = XPlaneConnectX()
+            xpc.subscribeDREFs([("sim/cockpit2/controls/brake_fan_on", 2),   # brake fan at 2Hz
+                                ("sim/flightmodel/position/y_agl", 10)])      # altitude above ground at 10Hz
+            xpc.startRECORDING()  # start the recording of data
+            # ... do something else
+            data = xpc.stopRECORDING()  # data is returned as dictionary
+        """
+        if not self.recording_in_progress:
+            raise RuntimeError("Recording was not started before it was stopped.")
+        
         self.recording_in_progress = False
         
-        return self.recorded_data
+        if not synchronize:
+            return self.recorded_data
+        
+        elif type(synchronize) in [float, int]:
+            return self._synchronize_measurements(self.recorded_data, target_frequency_hz=synchronize)
+        
+        # default to the lowest frequency in subscribed_drefs
+        elif synchronize == True:
+            freq = min([sdf[1] for sdf in self.subscribed_drefs])
+            return self._synchronize_measurements(self.recorded_data, target_frequency_hz=freq)
+
+    def _synchronize_measurements(self, data_dict, target_frequency_hz=10):
+        """
+        Synchronize measurements from multiple sensors to a common frequency.
+        
+        Parameters:
+        -----------
+        data_dict : dict
+            Dictionary where keys are column names and values are lists of dicts
+            with 'value' and 'timestamp' keys
+        target_frequency_hz : float
+            Target frequency in Hz
+        
+        Returns:
+        --------
+        pd.DataFrame
+            Synchronized dataframe with timestamp index
+        """
+        
+        # Check if the requested synchronizing frequency is higher than lowest frequency in subscribed DataRefs
+        if target_frequency_hz > min([sdr[1] for sdr in self.subscribed_drefs]):
+            print("Warning: Requested DataRef frequency is higher than the minimum subscribed DataRef frequency.")
+
+        # Convert each sensor's data to a DataFrame
+        dfs = {}
+        for column_name, measurements in data_dict.items():
+            if not measurements:  # Skip empty lists
+                continue
+                
+            df = pd.DataFrame(measurements)
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df = df.set_index('timestamp')
+            df = df.rename(columns={'value': column_name})
+            dfs[column_name] = df
+        
+        if not dfs:
+            return pd.DataFrame()
+        
+        # Find the overall time range
+        all_times = {}
+        for df in dfs.keys():
+            all_times[df] = dfs[df].index.tolist()
+        
+        start_time = max([min(all_times[k]) for k in all_times.keys()]) # choose the latest start time to avoid extrapolation on any df
+        end_time = min([max(all_times[k]) for k in all_times.keys()])   # choose the ealiest stop time to avoid extrapolation on any df
+        
+        # Create a common time index at the target frequency
+        target_frequency_str = str(int(1/target_frequency_hz * 10**9)) + 'ns'
+        common_index = pd.date_range(start=start_time, end=end_time, 
+                                    freq=target_frequency_str)
+        
+        # Resample and interpolate each column
+        synchronized_dfs = []
+        for column_name, df in dfs.items():
+            # Reindex to common time grid and interpolate
+            resampled = df.reindex(df.index.union(common_index)).interpolate(method='time').loc[common_index]
+            synchronized_dfs.append(resampled)
+        
+        # Combine all columns
+        result = pd.concat(synchronized_dfs, axis=1)
+        result.index.name = 'timestamp'
+        
+        return result
         
     def getDREF(self, dref:str) -> float:
         """Gets the current value of a DataRef. This is only intended for one-time use. For datarefs with frequent use, consider using the permanently observed DataRefs that can be setup when initializing the XPlaneConnectX object.

@@ -75,13 +75,15 @@ print(xpc.current_dref_values)  #prints the most recent values received from the
 ### Recordings
 ```python
 startRECORDING() -> None
-stopRECORDING() -> Dict
+stopRECORDING(synchronize=False) -> [Dict, DataFrame]
 ```
 
-With this set of functions, all messages that are received for the subscribed DataRefs, can be recorded and used for further applications. `startRECORDING` clears `xpc.recorded_data` and all all messages from the subcsribed DataRefs are added to a `xpc.recorded_data`. `stopRECORDING` stops the recording process and returns `xpc.recorded_data`, a dictionary with the DatRefs as keys and a list of dictionaries (`{'value':..., 'timestamp':...}`) as values. Since the subscribed DataRefs can be at different frequencies and X-Plane does not send the data at the exact same time, the data is not synchronized. If this is desirable for the user's application, this must be done using post-processing.
+With this set of functions, all messages that are received for the subscribed DataRefs, can be recorded and used for further applications. `startRECORDING` clears `xpc.recorded_data` and all all messages from the subcsribed DataRefs are added to a `xpc.recorded_data`. `stopRECORDING` stops the recording process and returns `xpc.recorded_data`, a dictionary with the DatRefs as keys and a list of dictionaries (`{'value':..., 'timestamp':...}`) as values. Since the subscribed DataRefs can be at different frequencies and X-Plane does not send the data at the exact same time, the data is not synchronized. Synchronization of data is handled using the `synchronize` argument in the `stopRECORDING` method. 
 
 #### Arguments
-No arguments are supported at this point.
+- `startRECORDING` does not take any arguments
+- `stopRecording`
+  - `synchronize` can be either a boolean or number. If `False`, the data is not synchronized (default). If `True` the data is synchronized to the lowest frequency in `self.subscribed_datarefs` and returned as pandas DataRef.  
 
 #### Example
 ```python
@@ -93,6 +95,11 @@ xpc.subscribeDREFs([("sim/cockpit2/controls/brake_fan_on", 2),  # brake fan at 2
 xpc.startRECORDING()  # start the recording of data
 time.sleep(5) # data is collected in a separate thread, so even using blocking functions like time.sleep, will not interrupt the data collection
 data = xpc.stopRECORDING()  # data is returned as dictionary
+
+xpc.startRECORDING()
+time.sleep(5)
+data_synchronized = xpc.stopRECORDING(synchronize=5)  # synchronize data to 5Hz, returned as Pandas DataFrame
+
 
 print(data.keys())  #prints the keys, i.e., 'sim/cockpit2/controls/brake_fan_on' and 'sim/flightmodel/position/y_agl'
 print(len(data['sim/cockpit2/controls/brake_fan_on']))  # should be about 10
