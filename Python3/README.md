@@ -78,12 +78,12 @@ startRECORDING() -> None
 stopRECORDING(synchronize=False) -> [Dict, DataFrame]
 ```
 
-With this set of functions, all messages that are received for the subscribed DataRefs, can be recorded and used for further applications. `startRECORDING` clears `xpc.recorded_data` and all all messages from the subcsribed DataRefs are added to a `xpc.recorded_data`. `stopRECORDING` stops the recording process and returns `xpc.recorded_data`, a dictionary with the DatRefs as keys and a list of dictionaries (`{'value':..., 'timestamp':...}`) as values. Since the subscribed DataRefs can be at different frequencies and X-Plane does not send the data at the exact same time, the data is not synchronized. Synchronization of data is handled using the `synchronize` argument in the `stopRECORDING` method. 
+With this set of functions, all messages that are received for the subscribed DataRefs, can be recorded and used for further applications. `startRECORDING` clears `xpc.recorded_data` and all all messages from the subcsribed DataRefs are added to a `xpc.recorded_data`. `stopRECORDING` stops the recording process and returns `xpc.recorded_data`, a dictionary with the DatRefs as keys and a list of dictionaries (`{'value':..., 'timestamp':...}`) as values. Since the subscribed DataRefs can be at different frequencies and X-Plane does not send the data at the exact same time, the data is not synchronized. Synchronization of data is handled using the `synchronize` argument in the `stopRECORDING` method. If using `synchronize=False` (default), only the raw recordings as described above are returned. Using any post-recording synchronization will use linear interpolation to specified frequency. 
 
 #### Arguments
 - `startRECORDING` does not take any arguments
-- `stopRecording`
-  - `synchronize` can be either a boolean or number. If `False`, the data is not synchronized (default). If `True` the data is synchronized to the lowest frequency in `self.subscribed_datarefs` and returned as pandas DataRef.  
+- `stopRECORDING`
+  - `synchronize` can be either a boolean or number. If `False`, the data is not synchronized (default). If `True` the data is synchronized to the lowest frequency in `self.subscribed_datarefs` and returned as pandas DataFrame.  
 
 #### Example
 ```python
