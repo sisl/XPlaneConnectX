@@ -54,15 +54,20 @@ xpc = XPlaneConnectX(ip="192.168.1.10", port=50000) # Custom IP and port
 
 ### Subscribing to DataRefs
 ```python
-subscribeDREFs(subscribed_drefs:list[Tuple[str,int]]) -> None
+subscribeDREFs(subscribed_drefs:list[Tuple[str,int]], history:float=0.0, timeout:float=5.0, retry_interval:float=0.5) -> None
 ```
 
 Permanently subscribe to a list of DataRefs with a certain frequency. This method is preferred for obtaining the most up-to-date values for DataRefs that will be used frequently during the runtime of your code. Examples include position, velocity, or attitude. The data will be asynchronously received and processed, unlike the synchronous `getDREF` or `getPOSI` methods. The most recent value for each subscribed DataRef is stored in `xpc.current_dref_values`, which is a dictionary with DataRefs as keys. Each entry contains another dictionary with the keys `"value"` and `"timestamp"` representing the most recent value and the time it was received, respectively. A full list of DataRefs can be found in `/.../X-Plane 12/Resources/plugins/DataRefs.txt`. Plugins can define their own DataRefs that you can subscribe to as well. Often, those definitions are stored within the plugin's directory itself.
+
+This method blocks until an initial value has been received for every subscribed DataRef. Because X-Plane uses UDP for both the subscription requests and the data stream, individual packets may be dropped when many DataRefs are subscribed at once. To recover from lost subscription packets, this method re-sends the RREF request for any DataRef that has not responded within `retry_interval` seconds, until every DataRef has produced a value or `timeout` seconds elapse. If some DataRefs still have not responded after `timeout`, a `TimeoutError` is raised listing the offending names (typically a misspelled or unknown DataRef). Passing `timeout <= 0` disables the blocking wait entirely.
 
 > **Note**: This function does not exist in the original XPlaneConnect, however, for code performance, this functionality can be helpful.
 
 #### Arguments
 - `subscribed_drefs:list[Tuple[str,int]]`: List of (DataRef, frequency) tuples to be permanently observed.
+- `history:float=0.0`: How many seconds of history to keep in buffer for each DataRef. Useful for applications like moving-average filters. Defaults to `0.0` (no history retained).
+- `timeout:float=5.0`: Total seconds to wait for initial values for every subscribed DataRef. A non-positive value disables the blocking wait.
+- `retry_interval:float=0.5`: Seconds between retransmissions of RREF requests for DataRefs that have not yet responded.
 
 #### Example
 ```python

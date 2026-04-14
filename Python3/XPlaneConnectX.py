@@ -2,6 +2,7 @@ import struct
 import socket
 import threading
 import datetime
+import time
 from typing import Tuple
 import pandas as pd
 
@@ -25,41 +26,84 @@ class XPlaneConnectX():
         self.current_dref_values = {}
         
     
-    def subscribeDREFs(self, subscribed_drefs:list[Tuple[str,int]]) -> None:
-        """Permanently subscribe to a list of DataRefs with a certain frequency. This is the prefered method for obtaining 
-        the most up to date values for DataRefs that will be used a large number of times during the runtime of your code. 
+    def subscribeDREFs(self, subscribed_drefs:list[Tuple[str,int]], history:float=0.0, timeout:float=5.0, retry_interval:float=0.5) -> None:
+        """Permanently subscribe to a list of DataRefs with a certain frequency. This is the prefered method for obtaining
+        the most up to date values for DataRefs that will be used a large number of times during the runtime of your code.
         Examples include the position, velocity or attitude. The data will be asynchronously received and processed. This is
         is different than the `getDREF` or `getPOSI` method that run synchronously. The most recently value for each subscribed
         DataRef is stored in XPlaneConnectX.current_dref_values which is a dictionary with the DataRefs as keys. Each entry of
         the dictionary contains another dictionary with the keys *value* and "timestamp* containing the most recent value of
-        DataRef as well as the time it was received, respectiveley. 
+        DataRef as well as the time it was received, respectiveley.
+
+        This method blocks until an initial value has been received for every subscribed DataRef. Because X-Plane uses UDP for
+        both the subscription requests and the data stream, individual packets may be dropped when many DataRefs are subscribed
+        at once. To recover from lost subscription packets, this method re-sends the RREF request for any DataRef that has not
+        responded within `retry_interval` seconds, until every DataRef has produced a value or `timeout` seconds elapse. If some
+        DataRefs still have not responded after `timeout`, a `TimeoutError` is raised listing the offending names (typically a
+        misspelled or unknown DataRef). Passing `timeout <= 0` disables the blocking wait entirely.
 
         Args:
             subscribed_drefs (list[Tuple[str,int]]): List of (DataRef, frequency) tuples to be permanently observed. Example: [("sim/cockpit2/controls/brake_fan_on", 2), ("sim/flightmodel/position/y_agl",10)].
-        
+            history  (float): How many seconds of history to keep in buffer. Applications for this include for example the moving average filters.
+            timeout (float): Total seconds to wait for initial values for every subscribed DataRef. Defaults to 5.0. A non-positive value disables the blocking wait.
+            retry_interval (float): Seconds between retransmissions of RREF requests for DataRefs that have not yet responded. Defaults to 0.5.
+
         Example:
             xpc = XPlaneConnectX()
             xpc.subscribeDREFs([("sim/cockpit2/controls/brake_fan_on", 2), ("sim/flightmodel/position/y_agl", 10)])
         """
-        
+
         self.subscribed_drefs = subscribed_drefs
         self.recording_in_progress = False
         self.recorded_data = {}
-        
+        self.history = history
+
         # initialize the current data dictionary that always contains the most up-to-date data received from the simulator
         self.reverse_index = {i:sdf[0] for i,sdf in enumerate(self.subscribed_drefs)}
-        self.current_dref_values = {sdf[0]:{'value':None, 'timestamp':None} for sdf in self.subscribed_drefs}
-        
-        self._create_observation_requests()
+        self.current_dref_values = {sdf[0]:{'value':None, 'timestamp':None, "history":[]} for sdf in self.subscribed_drefs}
+
+        # start the receiver before sending any RREF so no response can beat the reader
         self._observe_async()
-            
-    def _create_observation_requests(self) -> None:
-        for i,sdf in enumerate(self.subscribed_drefs):
-            dref = sdf[0]
-            cmd = b'RREF'  # "Request DREF"
-            freq = sdf[1]     
-            msg = struct.pack("<4sxii400s", cmd, freq, i, dref.encode('utf-8'))
-            self.sock.sendto(msg, (self.ip, self.port))
+        self._create_observation_requests()
+
+        if timeout > 0:
+            self._wait_for_initial_values(timeout=timeout, retry_interval=retry_interval)
+
+    def _send_rref(self, idx:int, dref:str, freq:int) -> None:
+        msg = struct.pack("<4sxii400s", b'RREF', freq, idx, dref.encode('utf-8'))
+        self.sock.sendto(msg, (self.ip, self.port))
+
+    def _create_observation_requests(self, indices=None) -> None:
+        if indices is None:
+            indices = range(len(self.subscribed_drefs))
+        for i in indices:
+            dref, freq = self.subscribed_drefs[i]
+            self._send_rref(i, dref, freq)
+
+    def _wait_for_initial_values(self, timeout:float, retry_interval:float) -> None:
+        # freq==0 is an unsubscribe request and will never be acknowledged; exclude from the wait set
+        pending = {i for i, (_, freq) in enumerate(self.subscribed_drefs) if freq > 0}
+        deadline = time.monotonic() + timeout
+        next_retry = time.monotonic() + retry_interval
+        poll_interval = min(0.05, retry_interval / 4) if retry_interval > 0 else 0.05
+        while True:
+            pending = {i for i in pending
+                       if self.current_dref_values[self.reverse_index[i]]['value'] is None}
+            if not pending:
+                return
+            now = time.monotonic()
+            if now >= deadline:
+                missing = sorted({self.reverse_index[i] for i in pending})
+                raise TimeoutError(
+                    f"subscribeDREFs: {len(missing)} DataRef(s) did not respond within "
+                    f"{timeout}s. Check the names (possibly misspelled or unknown to X-Plane):\n  - "
+                    + "\n  - ".join(missing)
+                )
+            if now >= next_retry:
+                self._create_observation_requests(indices=pending)
+                next_retry = now + retry_interval
+            sleep_for = min(poll_interval, max(0.0, deadline - now), max(0.0, next_retry - now))
+            time.sleep(max(sleep_for, 0.0))
                     
     def _observe(self) -> None:
         while True:
@@ -72,16 +116,19 @@ class XPlaneConnectX():
                 for p_idx in range(no_packets):
                     p_data = data[(5+p_idx*8):(5+(p_idx+1)*8)]
                     idx, value = struct.unpack("<if", p_data)
-                    if idx in self.reverse_index.keys():    # if not in self.reverse_idx, the received packet is for the getDREF method
+                    if idx in self.reverse_index.keys():    # if not in self.reverse_idx, the received packet is for the getDREF method or a stale subscription
                         # write current values to the self.current_dref_values dictionary
                         dref_dict = {'value':value, 'timestamp':datetime.datetime.now()}
-                        self.current_dref_values[self.reverse_index[idx]] = dref_dict
-                        
+
+                        # add current value to history and prune history data that is older than self.history
+                        history = [dref_dict] + self.current_dref_values[self.reverse_index[idx]]['history']
+                        history = [x for x in history if x["timestamp"] >= history[0]["timestamp"] - datetime.timedelta(seconds=self.history)]
+
+                        self.current_dref_values[self.reverse_index[idx]] = {**dref_dict, 'history':history}
+
                         # save off if recording is in progress
                         if self.recording_in_progress:
                             self.recorded_data[self.reverse_index[idx]].append(dref_dict)
-                    else:
-                        raise ValueError("Received a packet with invalid index.")
     
     def _observe_async(self) -> None:
         observe_thread = threading.Thread(target=self._observe)

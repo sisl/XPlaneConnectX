@@ -49,13 +49,18 @@ function XPlaneConnectX(; ip::String="127.0.0.1", port::Int64=49000)
 end
 
 """
-    subscribeDREFs(xpc::XPlaneConnectX, subscribed_drefs::Vector{Tuple{String, Int64}})
+    subscribeDREFs(xpc::XPlaneConnectX, subscribed_drefs::Vector{Tuple{String, Int64}};
+                   timeout::Float64=5.0, retry_interval::Float64=0.5)
 
 Permanently subscribe to a list of DataRefs with a certain frequency. This method is preferred for obtaining the most up-to-date values for DataRefs that will be used frequently during the runtime of your code. Examples include position, velocity, or attitude. The data will be asynchronously received and processed, unlike the synchronous `getDREF` or `getPOSI` methods. The most recent value for each subscribed DataRef is stored in `xpc.current_dref_values`, which is a dictionary with DataRefs as keys. Each entry contains another dictionary with the keys `"value"` and `"timestamp"` representing the most recent value and the time it was received, respectively.
+
+This method blocks until an initial value has been received for every subscribed DataRef. Because X-Plane uses UDP for both the subscription requests and the data stream, individual packets may be dropped when many DataRefs are subscribed at once. To recover from lost subscription packets, this method re-sends the RREF request for any DataRef that has not responded within `retry_interval` seconds, until every DataRef has produced a value or `timeout` seconds elapse. If some DataRefs still have not responded after `timeout`, an error is thrown listing the offending names (typically a misspelled or unknown DataRef). Passing `timeout <= 0` disables the blocking wait entirely.
 
 # Arguments
 - `xpc::XPlaneConnectX`: An instance of `XPlaneConnectX` to which the DataRefs will be subscribed.
 - `subscribed_drefs::Vector{Tuple{String, Int64}}`: List of (DataRef, frequency) tuples to be permanently observed.
+- `timeout::Float64=5.0`: Total seconds to wait for initial values for every subscribed DataRef. A non-positive value disables the blocking wait.
+- `retry_interval::Float64=0.5`: Seconds between retransmissions of RREF requests for DataRefs that have not yet responded.
 
 # Example
 ```julia
@@ -63,7 +68,8 @@ xpc = XPlaneConnectX()
 subscribeDREFs(xpc, [("sim/cockpit2/controls/brake_fan_on", 2), ("sim/flightmodel/position/y_agl", 10)])
 ```
 """
-function subscribeDREFs(xpc::XPlaneConnectX, subscribed_drefs::Vector{Tuple{String, Int64}})
+function subscribeDREFs(xpc::XPlaneConnectX, subscribed_drefs::Vector{Tuple{String, Int64}};
+                        timeout::Float64=5.0, retry_interval::Float64=0.5)
     xpc.subscribed_drefs = subscribed_drefs
     xpc.recording_in_progress = false
     xpc.recorded_data = Dict()
@@ -71,24 +77,59 @@ function subscribeDREFs(xpc::XPlaneConnectX, subscribed_drefs::Vector{Tuple{Stri
     # initialize the current data dictionary that always contains the most up-to-date data received from the simulator
     xpc.reverse_index = Dict(i => sdf[1] for (i, sdf) in enumerate(subscribed_drefs))
     xpc.current_dref_values = Dict(sdf[1] => Dict("value" => nothing, "timestamp" => nothing) for sdf in subscribed_drefs)
-    
+
     _create_observation_requests(xpc)
     _observe_async(xpc)
+
+    if timeout > 0
+        _wait_for_initial_values(xpc, timeout, retry_interval)
+    end
 end
 
-function _create_observation_requests(xpc::XPlaneConnectX)
-    for (i, sdf) in enumerate(xpc.subscribed_drefs)
-        dref = sdf[1]
-        prefix = "RREF"  # "Request DREF"
-        freq = Int32(sdf[2])
-        buffer = IOBuffer()
-        write(buffer, prefix)                     # 4s
-        write(buffer, UInt8(0))                   # x (padding byte)
-        write(buffer, freq)                       # i
-        write(buffer, Int32(i))                   # i
-        write(buffer, dref)                       # 400s
-        write(buffer, repeat([UInt8(0)], 400 - length(dref)))  # pad the string to 400 bytes
-        send(xpc.sock, IPv4(xpc.ip), xpc.port, take!(buffer))
+function _send_rref(xpc::XPlaneConnectX, idx::Integer, dref::String, freq::Integer)
+    buffer = IOBuffer()
+    write(buffer, "RREF")                     # 4s
+    write(buffer, UInt8(0))                   # x (padding byte)
+    write(buffer, Int32(freq))                # i
+    write(buffer, Int32(idx))                 # i
+    write(buffer, dref)                       # 400s
+    write(buffer, repeat([UInt8(0)], 400 - length(dref)))
+    send(xpc.sock, IPv4(xpc.ip), xpc.port, take!(buffer))
+end
+
+function _create_observation_requests(xpc::XPlaneConnectX; indices=nothing)
+    inds = indices === nothing ? (1:length(xpc.subscribed_drefs)) : indices
+    for i in inds
+        sdf = xpc.subscribed_drefs[i]
+        _send_rref(xpc, i, sdf[1], sdf[2])
+    end
+end
+
+function _wait_for_initial_values(xpc::XPlaneConnectX, timeout::Float64, retry_interval::Float64)
+    # freq==0 is an unsubscribe request and will never be acknowledged; exclude from the wait set
+    pending = Set{Int}(i for (i, sdf) in enumerate(xpc.subscribed_drefs) if sdf[2] > 0)
+    deadline = time() + timeout
+    next_retry = time() + retry_interval
+    poll_interval = retry_interval > 0 ? min(0.05, retry_interval / 4) : 0.05
+    while true
+        pending = Set{Int}(i for i in pending
+                           if xpc.current_dref_values[xpc.reverse_index[i]]["value"] === nothing)
+        if isempty(pending)
+            return
+        end
+        now_t = time()
+        if now_t >= deadline
+            missing_drefs = sort(collect(Set(xpc.reverse_index[i] for i in pending)))
+            error("subscribeDREFs: $(length(missing_drefs)) DataRef(s) did not respond within " *
+                  "$(timeout)s. Check the names (possibly misspelled or unknown to X-Plane):\n  - " *
+                  join(missing_drefs, "\n  - "))
+        end
+        if now_t >= next_retry
+            _create_observation_requests(xpc; indices=collect(pending))
+            next_retry = now_t + retry_interval
+        end
+        sleep_for = min(poll_interval, max(0.0, deadline - now_t), max(0.0, next_retry - now_t))
+        sleep(max(sleep_for, 0.0))
     end
 end
 
@@ -115,9 +156,8 @@ function _observe(xpc::XPlaneConnectX,delay::Float64)
                     if xpc.recording_in_progress
                         push!(xpc.recorded_data[xpc.reverse_index[idx]], dref_dict)
                     end
-                else
-                    error("Received a packet with invalid index.")
                 end
+                # unknown idx: silently skip — it's either a stale subscription response or a getDREF tail
             end
         end
     end
@@ -131,6 +171,24 @@ function _observe_async(xpc::XPlaneConnectX;delay::Float64=0.01)
     # _observe(xpc)
 end
 
+"""
+    startRECORDING(xpc::XPlaneConnectX)
+
+Starts a recording of the subscribed DataRefs into `xpc.recorded_data`. See `stopRECORDING` for the format the data is saved in `xpc.recorded_data`.
+
+# Arguments
+- `xpc::XPlaneConnectX`: An instance of `XPlaneConnectX` for which the recording should be started.
+
+# Example
+```julia
+xpc = XPlaneConnectX()
+subscribeDREFs(xpc, [("sim/cockpit2/controls/brake_fan_on", 2),  # brake fan at 2Hz
+                     ("sim/flightmodel/position/y_agl", 10)])    # altitude above ground at 10Hz
+startRECORDING(xpc)  # start the recording of data
+# ... do something else
+startRECORDING(xpc)  # Will display a warning and the current recording in progress will be overwritten.
+```
+"""
 function startRECORDING(xpc::XPlaneConnectX)
 
     if xpc.recording_in_progress
@@ -145,37 +203,38 @@ end
 
 
 """
-    stopRECORDING(xpc; synchronize=false)
+    stopRECORDING(xpc::XPlaneConnectX; synchronize=false)
 
-Terminates the recording and returns a dictionary of vectors that contain the recorded 
+Terminates the recording and returns a dictionary of vectors that contain the recorded
 values for the subscribed DataRefs along with the timestamp when they were received.
 
 # Arguments
-- `xpc`: XPlaneConnectX object
-- `synchronize::Union{Nothing, Bool, Float64}=nothing`: 
-    - `false`: return raw unsynchronized data
-    - `true`: synchronize to lowest subscribed frequency
-    - `Float64`: synchronize to specified frequency in Hz
+- `xpc::XPlaneConnectX`: An instance of `XPlaneConnectX` for which the recording should be stopped.
+- `synchronize=false`: Controls synchronization of the recorded data.
+    - `false`: return raw unsynchronized data (default).
+    - `true`: synchronize to the lowest subscribed frequency.
+    - `Float64` or `Int`: synchronize to the specified frequency in Hz.
 
 # Returns
-- `Dict` or `DataFrame`: Dictionary with DataRefs as keys and vectors of NamedTuples 
-  `(value=..., timestamp=...)` as values, or synchronized DataFrame if synchronize is specified
+- `Dict` or `DataFrame`: Dictionary with DataRefs as keys and vectors of Dicts with
+  `"value"` and `"timestamp"` keys as values, or a synchronized `DataFrame` if
+  `synchronize` is specified.
 
 # Example
 ```julia
 xpc = XPlaneConnectX()
-subscribe_drefs(xpc, [("sim/cockpit2/controls/brake_fan_on", 2),   # brake fan at 2Hz
-                       ("sim/flightmodel/position/y_agl", 10)])      # altitude above ground at 10Hz
-start_recording(xpc)  # start the recording of data
+subscribeDREFs(xpc, [("sim/cockpit2/controls/brake_fan_on", 2),   # brake fan at 2Hz
+                     ("sim/flightmodel/position/y_agl", 10)])     # altitude above ground at 10Hz
+startRECORDING(xpc)  # start the recording of data
 # ... do something else
-data = stop_recording(xpc)  # data is returned as dictionary
+data = stopRECORDING(xpc)  # data is returned as dictionary
 ```
 """
 function stopRECORDING(xpc; synchronize=false)
     if !xpc.recording_in_progress
-        @error "Recording was not started before it was stopped."
+        error("Recording was not started before it was stopped.")
     end
-    
+
     xpc.recording_in_progress = false
     
     if synchronize === false
