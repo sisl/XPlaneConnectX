@@ -68,4 +68,16 @@ println("The current position is: ", getPOSI(xpc))
 
 sleep(5)
 
+# Record the subscribed DataRefs for 5 seconds
+startRECORDING(xpc)     # start recording the subscribed DataRefs
+sleep(5)                # recording runs in the background
+data = stopRECORDING(xpc)   # raw recorded data as a dictionary of vectors of Dicts with "value"/"timestamp" keys
+println("Recorded ", length(data["sim/flightmodel/position/groundspeed"]), " groundspeed samples.")
+
+# Record again and synchronize the data to 5Hz (returned as a DataFrame)
+startRECORDING(xpc)
+sleep(5)
+data_synchronized = stopRECORDING(xpc, synchronize=5)
+println(first(data_synchronized, 5))
+
 sendCMND(xpc,"sim/operation/reset_flight")   # reset the flight

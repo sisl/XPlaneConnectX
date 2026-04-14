@@ -16,6 +16,8 @@ include("XPlaneConnectX.jl")
 ## Functionality
 At the moment, the following functions are supported:
 - [`subscribeDREFs`](#subscribing-to-datarefs)
+- [`startRECORDING`](#recordings)
+- [`stopRECORDING`](#recordings)
 - [`getDREF`](#reading-datarefs)
 - [`sendDREF`](#sending-datarefs)
 - [`sendCMND`](#sending-commands)
@@ -54,16 +56,21 @@ print(xpc.current_dref_values)  #prints the most recent values received from the
 
 ### Subscribing to DataRefs
 ```julia
-subscribeDREFs(xpc::XPlaneConnectX, subscribed_drefs::Vector{Tuple{String, Int64}})
+subscribeDREFs(xpc::XPlaneConnectX, subscribed_drefs::Vector{Tuple{String, Int64}};
+               timeout::Float64=5.0, retry_interval::Float64=0.5)
 ```
 
 Permanently subscribe to a list of DataRefs with a certain frequency. This method is preferred for obtaining the most up-to-date values for DataRefs that will be used frequently during the runtime of your code. Examples include position, velocity, or attitude. The data will be asynchronously received and processed, unlike the synchronous `getDREF` or `getPOSI` methods. The most recent value for each subscribed DataRef is stored in `xpc.current_dref_values`, which is a dictionary with DataRefs as keys. Each entry contains another dictionary with the keys `"value"` and `"timestamp"` representing the most recent value and the time it was received, respectively. A full list of DataRefs can be found in `/.../X-Plane 12/Resources/plugins/DataRefs.txt`. Plugins can define their own DataRefs that you can subscribe to as well. Often, those definitions are stored within the plugin's directory itself.
+
+This method blocks until an initial value has been received for every subscribed DataRef. Because X-Plane uses UDP for both the subscription requests and the data stream, individual packets may be dropped when many DataRefs are subscribed at once. To recover from lost subscription packets, this method re-sends the RREF request for any DataRef that has not responded within `retry_interval` seconds, until every DataRef has produced a value or `timeout` seconds elapse. If some DataRefs still have not responded after `timeout`, an error is thrown listing the offending names (typically a misspelled or unknown DataRef). Passing `timeout <= 0` disables the blocking wait entirely.
 
 > **Note**: This function does not exist in the original `XPlaneConnect`, however, for code performance, this functionality can be helpful.
 
 #### Arguments
 - `xpc::XPlaneConnectX`: An instance of `XPlaneConnectX` to which the DataRefs will be subscribed.
 - `subscribed_drefs::Vector{Tuple{String, Int64}}`: List of (DataRef, frequency) tuples to be permanently observed.
+- `timeout::Float64=5.0`: Total seconds to wait for initial values for every subscribed DataRef. A non-positive value disables the blocking wait.
+- `retry_interval::Float64=0.5`: Seconds between retransmissions of RREF requests for DataRefs that have not yet responded.
 
 #### Example
 ```julia
@@ -72,6 +79,39 @@ subscribeDREFs(xpc, [("sim/cockpit2/controls/brake_fan_on", 2),  # brake fan at 
                      ("sim/flightmodel/position/y_agl", 10)])    # altitude above ground at 10Hz
 print(xpc.current_dref_values)
 ```
+
+### Recordings
+```julia
+startRECORDING(xpc::XPlaneConnectX)
+stopRECORDING(xpc::XPlaneConnectX; synchronize=false) -> [Dict, DataFrame]
+```
+
+With this set of functions, all messages that are received for the subscribed DataRefs, can be recorded and used for further applications. `startRECORDING` clears `xpc.recorded_data` and all messages from the subscribed DataRefs are added to `xpc.recorded_data`. `stopRECORDING` stops the recording process and returns `xpc.recorded_data`, a dictionary with the DataRefs as keys and a list of dictionaries (`Dict("value" => ..., "timestamp" => ...)`) as values. Since the subscribed DataRefs can be at different frequencies and X-Plane does not send the data at the exact same time, the data is not synchronized. Synchronization of data is handled using the `synchronize` argument in the `stopRECORDING` method. If using `synchronize=false` (default), only the raw recordings as described above are returned. Using any post-recording synchronization will use linear interpolation to the specified frequency.
+
+#### Arguments
+- `startRECORDING` does not take any arguments besides the `XPlaneConnectX` instance
+- `stopRECORDING`
+  - `synchronize` can be either a boolean or a number. If `false`, the data is not synchronized (default). If `true`, the data is synchronized to the lowest frequency in `xpc.subscribed_drefs` and returned as a `DataFrame`. If a number is provided, the data is synchronized to that frequency (in Hz) and returned as a `DataFrame`.
+
+#### Example
+```julia
+xpc = XPlaneConnectX()
+subscribeDREFs(xpc, [("sim/cockpit2/controls/brake_fan_on", 2),  # brake fan at 2Hz
+                     ("sim/flightmodel/position/y_agl", 10)])    # altitude above ground at 10Hz
+
+startRECORDING(xpc)  # start the recording of data
+sleep(5) # data is collected in a separate thread, so even using blocking functions like sleep will not interrupt the data collection
+data = stopRECORDING(xpc)  # data is returned as dictionary
+
+startRECORDING(xpc)
+sleep(5)
+data_synchronized = stopRECORDING(xpc, synchronize=5) # synchronize data to 5Hz, returned as DataFrame
+
+println(collect(keys(data)))  #prints the keys, i.e., 'sim/cockpit2/controls/brake_fan_on' and 'sim/flightmodel/position/y_agl'
+println(length(data["sim/cockpit2/controls/brake_fan_on"])) # should be about 10
+println(length(data["sim/flightmodel/position/y_agl"])) # should be about 50
+```
+
 
 ### Reading DataRefs
 ```julia

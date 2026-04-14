@@ -1,6 +1,8 @@
 using Sockets
 using Base.Threads
 using Dates
+using DataFrames
+using Interpolations
 
 mutable struct XPlaneConnectX
     sock::UDPSocket
@@ -9,6 +11,9 @@ mutable struct XPlaneConnectX
     subscribed_drefs::Vector{Tuple{String, Int}}
     reverse_index::Dict{Int, String}
     current_dref_values::Dict{String, Dict{String, Any}}
+    recording_in_progress::Bool
+    recorded_data::Dict{String, Vector{Dict{String, Any}}}
+
 end
 
 """
@@ -31,18 +36,31 @@ xpc = XPlaneConnectX(ip="192.168.1.10", port=50000) # Custom IP and port
 """
 function XPlaneConnectX(; ip::String="127.0.0.1", port::Int64=49000)
     sock = UDPSocket()
-    xpc = XPlaneConnectX(sock, ip, port, [], Dict(), Dict())
-    return xpc
+    return XPlaneConnectX(
+        sock,
+        ip,
+        port,
+        Tuple{String, Int}[],
+        Dict{Int, String}(),
+        Dict{String, Dict{String, Any}}(),
+        false,
+        Dict{String, Vector{Dict{String, Any}}}()
+    )
 end
 
 """
-    subscribeDREFs(xpc::XPlaneConnectX, subscribed_drefs::Vector{Tuple{String, Int64}})
+    subscribeDREFs(xpc::XPlaneConnectX, subscribed_drefs::Vector{Tuple{String, Int64}};
+                   timeout::Float64=5.0, retry_interval::Float64=0.5)
 
 Permanently subscribe to a list of DataRefs with a certain frequency. This method is preferred for obtaining the most up-to-date values for DataRefs that will be used frequently during the runtime of your code. Examples include position, velocity, or attitude. The data will be asynchronously received and processed, unlike the synchronous `getDREF` or `getPOSI` methods. The most recent value for each subscribed DataRef is stored in `xpc.current_dref_values`, which is a dictionary with DataRefs as keys. Each entry contains another dictionary with the keys `"value"` and `"timestamp"` representing the most recent value and the time it was received, respectively.
+
+This method blocks until an initial value has been received for every subscribed DataRef. Because X-Plane uses UDP for both the subscription requests and the data stream, individual packets may be dropped when many DataRefs are subscribed at once. To recover from lost subscription packets, this method re-sends the RREF request for any DataRef that has not responded within `retry_interval` seconds, until every DataRef has produced a value or `timeout` seconds elapse. If some DataRefs still have not responded after `timeout`, an error is thrown listing the offending names (typically a misspelled or unknown DataRef). Passing `timeout <= 0` disables the blocking wait entirely.
 
 # Arguments
 - `xpc::XPlaneConnectX`: An instance of `XPlaneConnectX` to which the DataRefs will be subscribed.
 - `subscribed_drefs::Vector{Tuple{String, Int64}}`: List of (DataRef, frequency) tuples to be permanently observed.
+- `timeout::Float64=5.0`: Total seconds to wait for initial values for every subscribed DataRef. A non-positive value disables the blocking wait.
+- `retry_interval::Float64=0.5`: Seconds between retransmissions of RREF requests for DataRefs that have not yet responded.
 
 # Example
 ```julia
@@ -50,27 +68,68 @@ xpc = XPlaneConnectX()
 subscribeDREFs(xpc, [("sim/cockpit2/controls/brake_fan_on", 2), ("sim/flightmodel/position/y_agl", 10)])
 ```
 """
-function subscribeDREFs(xpc::XPlaneConnectX, subscribed_drefs::Vector{Tuple{String, Int64}})
+function subscribeDREFs(xpc::XPlaneConnectX, subscribed_drefs::Vector{Tuple{String, Int64}};
+                        timeout::Float64=5.0, retry_interval::Float64=0.5)
     xpc.subscribed_drefs = subscribed_drefs
+    xpc.recording_in_progress = false
+    xpc.recorded_data = Dict()
+
+    # initialize the current data dictionary that always contains the most up-to-date data received from the simulator
     xpc.reverse_index = Dict(i => sdf[1] for (i, sdf) in enumerate(subscribed_drefs))
     xpc.current_dref_values = Dict(sdf[1] => Dict("value" => nothing, "timestamp" => nothing) for sdf in subscribed_drefs)
+
     _create_observation_requests(xpc)
     _observe_async(xpc)
+
+    if timeout > 0
+        _wait_for_initial_values(xpc, timeout, retry_interval)
+    end
 end
 
-function _create_observation_requests(xpc::XPlaneConnectX)
-    for (i, sdf) in enumerate(xpc.subscribed_drefs)
-        dref = sdf[1]
-        prefix = "RREF"  # "Request DREF"
-        freq = Int32(sdf[2])
-        buffer = IOBuffer()
-        write(buffer, prefix)                     # 4s
-        write(buffer, UInt8(0))                   # x (padding byte)
-        write(buffer, freq)                       # i
-        write(buffer, Int32(i))                   # i
-        write(buffer, dref)                       # 400s
-        write(buffer, repeat([UInt8(0)], 400 - length(dref)))  # pad the string to 400 bytes
-        send(xpc.sock, IPv4(xpc.ip), xpc.port, take!(buffer))
+function _send_rref(xpc::XPlaneConnectX, idx::Integer, dref::String, freq::Integer)
+    buffer = IOBuffer()
+    write(buffer, "RREF")                     # 4s
+    write(buffer, UInt8(0))                   # x (padding byte)
+    write(buffer, Int32(freq))                # i
+    write(buffer, Int32(idx))                 # i
+    write(buffer, dref)                       # 400s
+    write(buffer, repeat([UInt8(0)], 400 - length(dref)))
+    send(xpc.sock, IPv4(xpc.ip), xpc.port, take!(buffer))
+end
+
+function _create_observation_requests(xpc::XPlaneConnectX; indices=nothing)
+    inds = indices === nothing ? (1:length(xpc.subscribed_drefs)) : indices
+    for i in inds
+        sdf = xpc.subscribed_drefs[i]
+        _send_rref(xpc, i, sdf[1], sdf[2])
+    end
+end
+
+function _wait_for_initial_values(xpc::XPlaneConnectX, timeout::Float64, retry_interval::Float64)
+    # freq==0 is an unsubscribe request and will never be acknowledged; exclude from the wait set
+    pending = Set{Int}(i for (i, sdf) in enumerate(xpc.subscribed_drefs) if sdf[2] > 0)
+    deadline = time() + timeout
+    next_retry = time() + retry_interval
+    poll_interval = retry_interval > 0 ? min(0.05, retry_interval / 4) : 0.05
+    while true
+        pending = Set{Int}(i for i in pending
+                           if xpc.current_dref_values[xpc.reverse_index[i]]["value"] === nothing)
+        if isempty(pending)
+            return
+        end
+        now_t = time()
+        if now_t >= deadline
+            missing_drefs = sort(collect(Set(xpc.reverse_index[i] for i in pending)))
+            error("subscribeDREFs: $(length(missing_drefs)) DataRef(s) did not respond within " *
+                  "$(timeout)s. Check the names (possibly misspelled or unknown to X-Plane):\n  - " *
+                  join(missing_drefs, "\n  - "))
+        end
+        if now_t >= next_retry
+            _create_observation_requests(xpc; indices=collect(pending))
+            next_retry = now_t + retry_interval
+        end
+        sleep_for = min(poll_interval, max(0.0, deadline - now_t), max(0.0, next_retry - now_t))
+        sleep(max(sleep_for, 0.0))
     end
 end
 
@@ -90,10 +149,15 @@ function _observe(xpc::XPlaneConnectX,delay::Float64)
                 idx, value = reinterpret(Int32, p_data[1:4])[1], reinterpret(Float32, p_data[5:8])[1]
                 if idx in keys(xpc.reverse_index)
                     # write current values to the xpc.current_dref_values dictionary
-                    xpc.current_dref_values[xpc.reverse_index[idx]] = Dict("value" => value, "timestamp" => now())
-                else
-                    error("Received a packet with invalid index.")
+                    dref_dict = Dict("value" => value, "timestamp" => now())
+                    xpc.current_dref_values[xpc.reverse_index[idx]] = dref_dict
+
+                    # save off if recording is in progress
+                    if xpc.recording_in_progress
+                        push!(xpc.recorded_data[xpc.reverse_index[idx]], dref_dict)
+                    end
                 end
+                # unknown idx: silently skip — it's either a stale subscription response or a getDREF tail
             end
         end
     end
@@ -105,6 +169,167 @@ function _observe_async(xpc::XPlaneConnectX;delay::Float64=0.01)
     #block the synchronous code as well to avoid that xpc.current_dref_values is read before they are ready
     sleep(delay)    
     # _observe(xpc)
+end
+
+"""
+    startRECORDING(xpc::XPlaneConnectX)
+
+Starts a recording of the subscribed DataRefs into `xpc.recorded_data`. See `stopRECORDING` for the format the data is saved in `xpc.recorded_data`.
+
+# Arguments
+- `xpc::XPlaneConnectX`: An instance of `XPlaneConnectX` for which the recording should be started.
+
+# Example
+```julia
+xpc = XPlaneConnectX()
+subscribeDREFs(xpc, [("sim/cockpit2/controls/brake_fan_on", 2),  # brake fan at 2Hz
+                     ("sim/flightmodel/position/y_agl", 10)])    # altitude above ground at 10Hz
+startRECORDING(xpc)  # start the recording of data
+# ... do something else
+startRECORDING(xpc)  # Will display a warning and the current recording in progress will be overwritten.
+```
+"""
+function startRECORDING(xpc::XPlaneConnectX)
+
+    if xpc.recording_in_progress
+        @warn "Recording was interrupted by the start of a new recording. Data from the previous recording is lost."
+    end
+
+    xpc.recorded_data = Dict(dref[1] => [] for dref in xpc.subscribed_drefs)
+    xpc.recording_in_progress = true
+
+end
+
+
+
+"""
+    stopRECORDING(xpc::XPlaneConnectX; synchronize=false)
+
+Terminates the recording and returns a dictionary of vectors that contain the recorded
+values for the subscribed DataRefs along with the timestamp when they were received.
+
+# Arguments
+- `xpc::XPlaneConnectX`: An instance of `XPlaneConnectX` for which the recording should be stopped.
+- `synchronize=false`: Controls synchronization of the recorded data.
+    - `false`: return raw unsynchronized data (default).
+    - `true`: synchronize to the lowest subscribed frequency.
+    - `Float64` or `Int`: synchronize to the specified frequency in Hz.
+
+# Returns
+- `Dict` or `DataFrame`: Dictionary with DataRefs as keys and vectors of Dicts with
+  `"value"` and `"timestamp"` keys as values, or a synchronized `DataFrame` if
+  `synchronize` is specified.
+
+# Example
+```julia
+xpc = XPlaneConnectX()
+subscribeDREFs(xpc, [("sim/cockpit2/controls/brake_fan_on", 2),   # brake fan at 2Hz
+                     ("sim/flightmodel/position/y_agl", 10)])     # altitude above ground at 10Hz
+startRECORDING(xpc)  # start the recording of data
+# ... do something else
+data = stopRECORDING(xpc)  # data is returned as dictionary
+```
+"""
+function stopRECORDING(xpc; synchronize=false)
+    if !xpc.recording_in_progress
+        error("Recording was not started before it was stopped.")
+    end
+
+    xpc.recording_in_progress = false
+    
+    if synchronize === false
+        return xpc.recorded_data
+    elseif synchronize isa Float64 || synchronize isa Int
+        return _synchronize_measurements(xpc.recorded_data, xpc.subscribed_drefs, 
+                                       target_frequency_hz=Float64(synchronize))
+    elseif synchronize === true
+        # Default to the lowest frequency in subscribed_drefs
+        freq = minimum([sdf[2] for sdf in xpc.subscribed_drefs])
+        return _synchronize_measurements(xpc.recorded_data, xpc.subscribed_drefs,
+                                       target_frequency_hz=freq)
+    else
+        error("Invalid synchronize parameter. Expected nothing, Bool, or Float64, got $(typeof(synchronize))")
+    end
+end
+
+
+"""
+    _synchronize_measurements(data_dict, subscribed_drefs; target_frequency_hz=10.0)
+
+Synchronize measurements from multiple sensors to a common frequency.
+
+# Parameters
+- `data_dict`: Dictionary where keys are column names and values are vectors of Dicts
+  or NamedTuples with "value" and "timestamp" fields
+- `target_frequency_hz`: Target frequency in Hz
+
+# Returns
+- `DataFrame`: Synchronized DataFrame with timestamp index
+"""
+function _synchronize_measurements(data_dict, subscribed_drefs; target_frequency_hz=10.0)
+    # Check frequency warning
+    min_freq = minimum([sdr[2] for sdr in subscribed_drefs])
+    if target_frequency_hz > min_freq
+        @warn "Requested DataRef frequency is higher than the minimum subscribed DataRef frequency."
+    end
+    
+    # Early return for empty input
+    if isempty(data_dict) || all(isempty(v) for v in values(data_dict))
+        return DataFrame()
+    end
+    
+    # Process each sensor's data
+    processed_data = Dict{String, Tuple{Vector{DateTime}, Vector{Float64}}}()
+    
+    for (column_name, measurements) in data_dict
+        if isempty(measurements)
+            continue
+        end
+        
+        # Handle both Dict and NamedTuple
+        if eltype(measurements) <: Dict
+            # Extract from Dict with string keys
+            timestamps = DateTime.([m["timestamp"] for m in measurements])
+            values = Float64.([m["value"] for m in measurements])
+        else
+            # Extract from NamedTuple or struct
+            timestamps = DateTime.(getfield.(measurements, :timestamp))
+            values = Float64.(getfield.(measurements, :value))
+        end
+        
+        processed_data[column_name] = (timestamps, values)
+    end
+    
+    if isempty(processed_data)
+        return DataFrame()
+    end
+    
+    # Find common time range
+    start_time = maximum(minimum(times) for (times, _) in values(processed_data))
+    end_time = minimum(maximum(times) for (times, _) in values(processed_data))
+    
+    # Create common time index
+    period_ns = Int(round(1/target_frequency_hz * 1e9))
+    common_index = collect(start_time:Nanosecond(period_ns):end_time)
+    common_index_unix = datetime2unix.(common_index)
+    
+    # Build result DataFrame
+    result = DataFrame(timestamp = common_index)
+    
+    # Interpolate each column
+    for (column_name, (timestamps, values)) in processed_data
+        timestamps_unix = datetime2unix.(timestamps)
+        
+        # Create interpolation
+        itp = LinearInterpolation(timestamps_unix, values)
+        
+        # Interpolate to common index
+        interpolated = itp.(common_index_unix)
+        
+        result[!, Symbol(column_name)] = interpolated
+    end
+    
+    return result
 end
 
 """

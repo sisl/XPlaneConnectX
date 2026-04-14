@@ -15,6 +15,8 @@ from XPlaneConnectX import XPlaneConnectX
 ## Functionality
 At the moment, the following functions are supported:
 - [`subscribeDREFs`](#subscribing-to-datarefs)
+- [`startRECORDING`](#recordings)
+- [`stopRECORDING`](#recordings)
 - [`getDREF`](#reading-datarefs)
 - [`sendDREF`](#sending-datarefs)
 - [`sendCMND`](#sending-commands)
@@ -52,15 +54,20 @@ xpc = XPlaneConnectX(ip="192.168.1.10", port=50000) # Custom IP and port
 
 ### Subscribing to DataRefs
 ```python
-subscribeDREFs(subscribed_drefs:list[Tuple[str,int]]) -> None
+subscribeDREFs(subscribed_drefs:list[Tuple[str,int]], history:float=0.0, timeout:float=5.0, retry_interval:float=0.5) -> None
 ```
 
 Permanently subscribe to a list of DataRefs with a certain frequency. This method is preferred for obtaining the most up-to-date values for DataRefs that will be used frequently during the runtime of your code. Examples include position, velocity, or attitude. The data will be asynchronously received and processed, unlike the synchronous `getDREF` or `getPOSI` methods. The most recent value for each subscribed DataRef is stored in `xpc.current_dref_values`, which is a dictionary with DataRefs as keys. Each entry contains another dictionary with the keys `"value"` and `"timestamp"` representing the most recent value and the time it was received, respectively. A full list of DataRefs can be found in `/.../X-Plane 12/Resources/plugins/DataRefs.txt`. Plugins can define their own DataRefs that you can subscribe to as well. Often, those definitions are stored within the plugin's directory itself.
+
+This method blocks until an initial value has been received for every subscribed DataRef. Because X-Plane uses UDP for both the subscription requests and the data stream, individual packets may be dropped when many DataRefs are subscribed at once. To recover from lost subscription packets, this method re-sends the RREF request for any DataRef that has not responded within `retry_interval` seconds, until every DataRef has produced a value or `timeout` seconds elapse. If some DataRefs still have not responded after `timeout`, a `TimeoutError` is raised listing the offending names (typically a misspelled or unknown DataRef). Passing `timeout <= 0` disables the blocking wait entirely.
 
 > **Note**: This function does not exist in the original XPlaneConnect, however, for code performance, this functionality can be helpful.
 
 #### Arguments
 - `subscribed_drefs:list[Tuple[str,int]]`: List of (DataRef, frequency) tuples to be permanently observed.
+- `history:float=0.0`: How many seconds of history to keep in buffer for each DataRef. Useful for applications like moving-average filters. Defaults to `0.0` (no history retained).
+- `timeout:float=5.0`: Total seconds to wait for initial values for every subscribed DataRef. A non-positive value disables the blocking wait.
+- `retry_interval:float=0.5`: Seconds between retransmissions of RREF requests for DataRefs that have not yet responded.
 
 #### Example
 ```python
@@ -69,6 +76,41 @@ xpc.subscribeDREFs([("sim/cockpit2/controls/brake_fan_on", 2),  # brake fan at 2
                     ("sim/flightmodel/position/y_agl", 10)])    # altitude above ground at 10Hz
 print(xpc.current_dref_values)  #prints the most recent values received from the subscribed to DataRefs
 ```
+
+### Recordings
+```python
+startRECORDING() -> None
+stopRECORDING(synchronize=False) -> [Dict, DataFrame]
+```
+
+With this set of functions, all messages that are received for the subscribed DataRefs, can be recorded and used for further applications. `startRECORDING` clears `xpc.recorded_data` and all all messages from the subcsribed DataRefs are added to a `xpc.recorded_data`. `stopRECORDING` stops the recording process and returns `xpc.recorded_data`, a dictionary with the DatRefs as keys and a list of dictionaries (`{'value':..., 'timestamp':...}`) as values. Since the subscribed DataRefs can be at different frequencies and X-Plane does not send the data at the exact same time, the data is not synchronized. Synchronization of data is handled using the `synchronize` argument in the `stopRECORDING` method. If using `synchronize=False` (default), only the raw recordings as described above are returned. Using any post-recording synchronization will use linear interpolation to specified frequency. 
+
+#### Arguments
+- `startRECORDING` does not take any arguments
+- `stopRECORDING`
+  - `synchronize` can be either a boolean or number. If `False`, the data is not synchronized (default). If `True` the data is synchronized to the lowest frequency in `self.subscribed_datarefs` and returned as pandas DataFrame.  
+
+#### Example
+```python
+import time
+
+xpc = XPlaneConnectX()
+xpc.subscribeDREFs([("sim/cockpit2/controls/brake_fan_on", 2),  # brake fan at 2Hz
+                    ("sim/flightmodel/position/y_agl", 10)])    # altitude above ground at 10Hz
+xpc.startRECORDING()  # start the recording of data
+time.sleep(5) # data is collected in a separate thread, so even using blocking functions like time.sleep, will not interrupt the data collection
+data = xpc.stopRECORDING()  # data is returned as dictionary
+
+xpc.startRECORDING()
+time.sleep(5)
+data_synchronized = xpc.stopRECORDING(synchronize=5)  # synchronize data to 5Hz, returned as Pandas DataFrame
+
+
+print(data.keys())  #prints the keys, i.e., 'sim/cockpit2/controls/brake_fan_on' and 'sim/flightmodel/position/y_agl'
+print(len(data['sim/cockpit2/controls/brake_fan_on']))  # should be about 10
+print(len(data['sim/flightmodel/position/y_agl']))  # should be about 50
+```
+
 
 ### Reading DataRefs
 ```python

@@ -17,9 +17,7 @@ subscribed_drefs=[("sim/flightmodel/position/groundspeed",10),   # ground speed 
 xpc = XPlaneConnectX(ip='127.0.0.1', port=49000) 
 
 # subscribe to datarefs
-xpc.subscribeDREFs(subscribed_drefs)    # the current values are stored in xpc.current_dref_values
-
-# time.sleep(0.5)     # this is just a safety buffer    
+xpc.subscribeDREFs(subscribed_drefs)    # blocks until X-Plane has responded for every subscribed DataRef; values are stored in xpc.current_dref_values
 
 # Set the airplane's location to Palo Alto (KPAO), runway 31.
 lat, lon, elev = 37.458194732666016, -122.11215209960938, 2.239990472793579
@@ -64,6 +62,18 @@ xpc.sendCTRL(0,0,0,0,1,0,0,1)   # no throttle, parking brake set
 print(f"The current position is: {xpc.getPOSI()}") 
 
 time.sleep(5)
+
+# Record the subscribed DataRefs for 5 seconds
+xpc.startRECORDING()    # start recording the subscribed DataRefs
+time.sleep(5)           # recording runs in the background
+data = xpc.stopRECORDING()  # raw recorded data as a dictionary of lists of {'value','timestamp'} dicts
+print(f"Recorded {len(data['sim/flightmodel/position/groundspeed'])} groundspeed samples.")
+
+# Record again and synchronize the data to 5Hz (returned as a pandas DataFrame)
+xpc.startRECORDING()
+time.sleep(5)
+data_synchronized = xpc.stopRECORDING(synchronize=5)
+print(data_synchronized.head())
 
 xpc.sendCMND('sim/operation/reset_flight')   # reset the flight
 

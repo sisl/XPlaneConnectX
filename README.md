@@ -11,6 +11,8 @@ Instead of turning our code into packages, we decided to leave them as standalon
 
 The following functions are currently supported (the links take you to the language-specific documentation):
 - `subscribeDREFs` [[Py]](./Python3/README.md#subscribing-to-datarefs)/[[Jl]](./Julia/README.md#subscribing-to-datarefs)
+- `startRECORDING` [[Py]](./Python3/README.md#recordings)/[[Jl]](./Julia/README.md#recordings)
+- `stopRECORDING` [[Py]](./Python3/README.md#recordings)/[[Jl]](./Julia/README.md#recordings)
 - `getDREF` [[Py]](./Python3/README.md#reading-datarefs)/[[Jl]](./Julia/README.md#reading-datarefs)
 - `sendDREF` [[Py]](./Python3/README.md#sending-datarefs)/[[Jl]](./Julia/README.md#sending-datarefs)
 - `sendCMND` [[Py]](./Python3/README.md#sending-commands)/[[Jl]](./Julia/README.md#sending-commands)
