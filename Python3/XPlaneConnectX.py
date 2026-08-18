@@ -20,6 +20,9 @@ class XPlaneConnectX():
         """
         
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.bind(('', 0))
+        if hasattr(socket, 'SIO_UDP_CONNRESET'):
+            self.sock.ioctl(socket.SIO_UDP_CONNRESET, 0)
         self.ip = ip
         self.port = port
         self.reverse_index = {}
@@ -107,7 +110,10 @@ class XPlaneConnectX():
                     
     def _observe(self) -> None:
         while True:
-            data, addr = self.sock.recvfrom(16348)
+            try:
+                data, addr = self.sock.recvfrom(16348)
+            except ConnectionResetError:
+                continue
             header = data[0:4]
             if header[0:4] == b'RREF':
                 if ((len(data)-5)%8) != 0:
